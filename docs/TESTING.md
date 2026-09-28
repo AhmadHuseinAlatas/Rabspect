@@ -1,0 +1,329 @@
+# Rapspect — Panduan Pengujian Manual
+
+Dokumen untuk QA. Tidak butuh pengetahuan build tool: tidak ada `npm install`,
+tidak ada compile, tidak ada langkah build. Folder ini dimuat apa adanya.
+
+- Chrome minimum: **114** (side panel butuh 114+, `world: "MAIN"` butuh 111+)
+- Folder proyek: `C:\Users\babaj\.kiro\crew\workspace\Rabspect`
+
+---
+
+## 1. Menjalankan server uji lokal (lakukan ini dulu)
+
+Alasannya penting, bukan formalitas: `test-page.html` yang dibuka lewat
+`file://` tidak bisa melakukan `fetch` lintas origin karena origin-nya opaque.
+Skenario "fetch 200" dan "fetch 404" akan sama-sama tampil gagal, dan kamu tidak
+bisa membedakan bug Rapspect dari batasan browser.
+
+Buka PowerShell di folder proyek:
+
+```powershell
+cd C:\Users\babaj\.kiro\crew\workspace\Rabspect
+node tools/serve.js
+```
+
+Output yang diharapkan:
+
+```
+Rapspect test server
+  root : C:\Users\babaj\.kiro\crew\workspace\Rabspect
+  open : http://localhost:8080/test-page.html
+  stop : Ctrl+C
+```
+
+Kalau port dipakai proses lain: `node tools/serve.js 8081`.
+Biarkan jendela ini terbuka selama pengujian. Hentikan dengan `Ctrl+C`.
+
+Kalau kamu memilih tetap memakai `file://`: buka `chrome://extensions`, klik
+**Details** pada Rapspect, nyalakan **Allow access to file URLs**. Console,
+uncaught error, unhandled rejection, XHR, dan fetch ke domain mati tetap bisa
+diuji. Dua skenario fetch yang butuh CORS tidak bisa.
+
+---
+
+## 1.1 Dua pemeriksaan otomatis sebelum pengujian manual
+
+Keduanya selesai dalam satu detik dan tidak butuh Chrome. Jalankan setiap kali
+kode di `src/shared/rapspect-core.js` atau token warna di `src/panel/panel.css`
+diubah.
+
+```powershell
+node tools/selftest-redaction.js
+node tools/selftest-contrast.js
+```
+
+`selftest-redaction.js` memeriksa 46 hal: header dan field yang wajib disensor,
+**dan** nama field biasa yang tidak boleh ikut tersensor (`shipping`, `pinned`,
+`spinner`). Yang diharapkan: `46 pemeriksaan, 0 gagal`.
+
+`selftest-contrast.js` menghitung ulang seluruh rasio kontras token warna dengan
+rumus WCAG 2.1. Yang diharapkan: `Semua warna yang dipakai lolos ambang 4.5:1`.
+Bagian "nilai asli README" memang menampilkan `confirmed failing` — itu bukti
+temuan di `docs/DECISIONS.md` bagian 1.3, bukan kegagalan.
+
+Kalau salah satu skrip keluar dengan exit code selain 0, **hentikan pengujian
+manual** dan perbaiki dulu. Khususnya yang redaction: lanjut menguji dengan
+redaction bolong berarti kamu berpotensi menyalin token asli ke bug report.
+
+---
+
+## 2. Load unpacked di chrome://extensions
+
+1. Buka `chrome://extensions` di address bar. Jangan lewat Google — halaman ini
+   tidak bisa dibuka dari link.
+2. Nyalakan **Developer mode** (toggle di kanan atas).
+3. Klik **Load unpacked**.
+4. Pilih folder **`Rabspect`** — folder yang berisi `manifest.json`.
+   Jangan memilih `src`, dan jangan memilih file `manifest.json` itu sendiri.
+5. Kartu extension bernama **Rapspect 1.0.0** akan muncul.
+
+Yang normal terlihat setelah langkah ini:
+
+- Ikon di toolbar berupa **puzzle piece generik**, bukan logo onta. Keempat PNG
+  ikon belum ada; lihat `assets/icons/README.txt`. Ini bukan error.
+- Kartu extension menampilkan tautan **service worker** (kadang tertulis
+  "Inspect views service worker"). Kalau ada label **Errors** berwarna merah,
+  klik dan baca isinya — itu bukan normal.
+
+Catat **ID extension** dari kartu itu kalau nanti perlu melaporkan masalah.
+
+---
+
+## 3. Membuka panel
+
+Tiga cara, urut dari yang paling cepat:
+
+1. **Klik ikon Rapspect di toolbar.** Side panel terbuka di sisi kanan. Ini
+   bekerja karena service worker memanggil
+   `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`.
+   Kalau ikonnya tersembunyi, klik ikon puzzle di toolbar lalu pin Rapspect.
+2. Klik ikon **side panel** di toolbar Chrome, lalu pilih **Rapspect** dari
+   dropdown.
+3. Menu tiga titik Chrome → **Extensions** → Rapspect.
+
+Panel tetap terbuka saat kamu mengklik-klik halaman. Itu memang tujuannya —
+tidak perlu membuka DevTools sama sekali.
+
+**Urutan yang benar:** buka panel dulu, baru reload halaman. Rapspect hanya
+melihat apa yang terjadi setelah dia terpasang di halaman. Itu sebabnya empty
+state berbunyi "reload the page to start tracking".
+
+---
+
+## 4. Reload extension setelah mengubah kode
+
+Aturannya berbeda tergantung file yang kamu ubah.
+
+| File yang diubah | Yang harus dilakukan |
+|---|---|
+| `src/panel/panel.html` / `.css` / `.js` | Tutup panel, buka lagi. Cukup itu |
+| `src/background/service-worker.js` | Klik **Reload** (ikon panah melingkar) di kartu extension |
+| `src/content/*.js`, `src/shared/rapspect-core.js` | Klik **Reload** di kartu extension, **lalu reload halaman yang diuji**. Dua-duanya, berurutan |
+| `manifest.json` | Klik **Reload**. Kalau muncul error, hapus extension lalu Load unpacked lagi |
+
+Kenapa content script butuh dua langkah: content script yang sudah tersuntik di
+halaman tidak diganti oleh reload extension. Yang lama menjadi "zombi" —
+kodenya jalan tapi `chrome.runtime` sudah mati. Rapspect mendeteksi ini dan
+berhenti mengirim, jadi kamu tidak akan melihat error berantai, tapi kamu juga
+tidak akan melihat log baru sampai halaman di-reload.
+
+Gejala khasnya: setelah reload extension, panel berhenti menerima entri baru
+sampai kamu menekan F5 di halaman.
+
+---
+
+## 5. Melihat log service worker
+
+1. Buka `chrome://extensions`.
+2. Pada kartu Rapspect, klik tautan **service worker**.
+3. DevTools terbuka khusus untuk service worker. Buka tab **Console**.
+
+Saat sehat kamu akan melihat:
+
+```
+[Rapspect] service worker aktif, buffer maksimum 500 entri per tab
+```
+
+Baris itu muncul **setiap kali** worker bangun dari tidur, bukan sekali seumur
+hidup. Melihatnya berulang adalah normal di MV3.
+
+Status **inactive** di kartu extension juga normal — worker memang dimatikan
+Chrome setelah beberapa puluh detik tanpa event. Membuka jendela inspect-nya
+membangunkannya kembali.
+
+Untuk melihat log dari halaman panel (bukan service worker): klik kanan di dalam
+side panel → **Inspect**.
+
+---
+
+## 6. Checklist verifikasi manual
+
+Persiapan untuk semua langkah: server uji jalan (bagian 1), extension ter-load
+(bagian 2), panel terbuka (bagian 3), dan `http://localhost:8080/test-page.html`
+terbuka di tab aktif.
+
+### 6.1 Dasar
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-01 | Load unpacked folder `Rabspect` | Kartu "Rapspect 1.0.0" muncul tanpa label **Errors** merah |
+| V-02 | Periksa daftar izin di kartu extension | Hanya muncul akses baca/ubah data di semua situs. Tidak ada permintaan debugger |
+| V-03 | Klik ikon Rapspect di toolbar | Side panel terbuka di kanan, header navy bertulisan "Rapspect" |
+| V-04 | Buka panel di tab kosong (`about:blank`) lalu lihat pesannya | Muncul notice, bukan daftar kosong tanpa penjelasan |
+| V-05 | Buka `chrome://settings` lalu lihat panel | Tampil `Can't read this page. Extensions can't access chrome:// or Web Store pages.` |
+| V-06 | Buka panel, lalu buka `test-page.html` di tab baru **tanpa** reload | Empty state: `No tracks yet — reload the page to start tracking.` |
+| V-07 | Tekan F5 di `test-page.html` | Panel terisi dalam 1–2 detik, minimal 14 entri |
+
+### 6.2 Penangkapan console
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-08 | Klik **console.log** di halaman uji | Baris baru, tag `LOG`, teks `T-01 plain log from the test page { step: 1, ok: true }` |
+| V-09 | Klik **console.info** | Tag `INFO`, garis tepi kiri warna info (teal) |
+| V-10 | Klik **console.warn** | Tag `WARN`, garis tepi kiri kuning |
+| V-11 | Klik **console.error** | Tag `ERROR`, garis tepi kiri merah, tombol `details` tersedia |
+| V-12 | Klik `details` pada baris V-11 | Blok detail menampilkan stack trace. Tidak ada baris yang menyebut `capture-main.js` atau `rapspect-core.js` |
+| V-13 | Klik **console.debug** | Tag `DEBUG`, warna debug (abu-abu kebiruan) |
+| V-14 | Buka DevTools halaman uji (F12), ulangi V-08 | Log muncul di **kedua** tempat: Console DevTools dan panel Rapspect. Rapspect tidak menelan log |
+
+### 6.3 Penangkapan network
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-15 | Klik **fetch 200** | Baris `NET`, `GET 200`, durasi dalam ms, URL `.../todos/1`. Level info |
+| V-16 | Klik **fetch 404** | Baris `NET`, `GET 404`, level error (garis tepi merah) |
+| V-17 | Klik **fetch to a domain that does not exist** | Baris `NET` dengan `FAILED`, bukan angka status. `details` menyebut `network error: ...` |
+| V-18 | Klik **XMLHttpRequest** | Baris `NET`, `GET 200`, `details` menampilkan `transport : xhr` dan header `X-Test-Case: T-10` |
+| V-19 | Periksa kolom ukuran pada V-15 | Ukuran tampil dalam B/kB, atau tanda hubung kalau server tidak mengirim `Content-Length`. Keduanya sah |
+| V-20 | Buka `details` pada request apa pun | Ada baris `note : response body is never captured`. Tidak ada isi response di mana pun |
+
+### 6.4 Crash
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-21 | Klik **uncaught error** | Baris `ERROR` berisi `Uncaught ... T-12 uncaught error from the test page` beserta nama file, baris, dan kolom |
+| V-22 | Klik **unhandled promise rejection** | Baris `ERROR` berisi `Unhandled promise rejection: Error: T-13 ...` |
+| V-23 | Klik **broken image (resource error)** | Baris `ERROR` berisi `Failed to load resource: <img> https://rapspect-this-host-does-not-exist.invalid/missing-image.png` |
+
+### 6.5 Redaction (README bagian 11 — wajib lolos semua)
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-24 | Klik **POST with fake Authorization**, buka `details` | `Authorization: [REDACTED]` dan `X-Api-Key: [REDACTED]` |
+| V-25 | Pada baris yang sama, periksa header `X-Request-Id` | Tampil apa adanya: `visible-request-id-T11`. Redaction tidak boleh menyensor berlebihan |
+| V-26 | Pada baris yang sama, periksa request body | `password`, `apiKey`, `refreshToken`, dan `pin` semuanya `[REDACTED]`. `username` dan `note` tetap terbaca |
+| V-27 | Pada baris yang sama, lihat kolom pesan | Ada penanda `[N redacted]` dengan N minimal 6 |
+| V-28 | Klik **console.log with secret object**, baca barisnya | `apiKey`, `accessToken`, dan `pin` jadi `[REDACTED]`. `safeValue` dan `endpoint` tetap terbaca |
+| V-29 | Cari `SHOULD-NOT-APPEAR` di kotak Search | **0 hasil.** Ini pemeriksaan paling penting di seluruh dokumen ini |
+| V-30 | Export JSON, buka file hasilnya di editor, cari `SHOULD-NOT-APPEAR` | **0 hasil** |
+| V-31 | Lihat indikator di footer panel | `Redaction ON` dengan border hijau. Hover menampilkan daftar header dan field yang disensor |
+
+### 6.6 Filter, search, dan aksi
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-32 | Klik **Run all scenarios**, lalu matikan chip `Log` | Semua baris tag `LOG` hilang. Hitungan "shown" turun, "captured" tidak berubah |
+| V-33 | Matikan semua chip kecuali `Error` | Hanya baris error dan pembatas `PAGE` yang tampil. Pembatas navigasi memang dikecualikan dari filter level |
+| V-34 | Centang **Failed only (status >= 400)** | Hanya baris `NET` dengan `404` dan `FAILED`. Semua entri console hilang, termasuk `console.error` |
+| V-35 | Hapus centang Failed only, ketik `404` di Search | Hanya baris yang memuat teks `404` |
+| V-36 | Ketik `T-11` di Search | Baris POST dengan Authorization muncul, termasuk kecocokan di dalam request body |
+| V-37 | Kosongkan Search | Seluruh baris kembali |
+| V-38 | Klik **Copy as text**, tempel ke Notepad | Ada 6 baris header berawalan `#`, lalu satu baris per entri dengan format `[hh:mm:ss.mmm] TAG ...` |
+| V-39 | Klik **Export JSON** | Muncul dialog peringatan yang menyebut daftar header dan field tersensor. Belum ada file terunduh |
+| V-40 | Klik **Cancel** di dialog | Dialog tertutup, tidak ada file terunduh |
+| V-41 | Klik **Export JSON** lalu **Download** | File `rapspect-localhost-<tanggal>-<waktu>.json` terunduh. Isinya punya `redaction.enabled: true` |
+| V-42 | Nyalakan Failed only, lalu Export JSON | File hanya berisi entri yang sedang tampil. `filters.failedOnly` bernilai `true` |
+| V-43 | Klik **Clear** | Panel kembali ke empty state. Hitungan jadi `0 shown / 0 captured` |
+| V-44 | Reload halaman uji setelah Clear | Entri baru masuk kembali |
+
+### 6.7 Tema dan keterbacaan
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-45 | Klik **Light mode** | Panel jadi terang. Label tombol berubah jadi `Dark mode` |
+| V-46 | Tutup panel, buka lagi | Tema terang masih terpakai (tersimpan di `storage.local`) |
+| V-47 | Di light mode, baca baris warning | Teks `WARN` berwarna kuning gelap (`#8A6100`), jelas terbaca. Bukan kuning cerah yang memudar |
+| V-48 | Di kedua tema, perhatikan baris ganjil dan genap | Zebra striping terlihat, dan teks isi log sama terbacanya di kedua warna baris |
+| V-49 | Periksa isi teks baris log di kedua tema | Teks pesan selalu warna teks normal, tidak pernah diwarnai per level. Warna hanya di badge dan garis tepi kiri |
+| V-50 | Cari istilah bertema gurun di seluruh UI | Tidak ada. `Network`, `Error`, `404` apa adanya. Karakter onta hanya di empty state |
+
+### 6.8 Ketahanan (bagian yang paling sering luput diuji)
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-51 | Biarkan Chrome idle 1 menit sampai service worker `inactive`, lalu reload halaman uji | Log baru tetap masuk. Entri lama masih ada, tidak hilang |
+| V-52 | Klik **Reload** di kartu extension **tanpa** reload halaman | Panel berhenti menerima entri baru. Tidak ada error bertumpuk di console halaman |
+| V-53 | Lanjutan V-52: reload halaman uji | Entri masuk normal kembali |
+| V-54 | Buka dua tab `test-page.html`, jalankan skenario di masing-masing | Panel hanya menampilkan log tab yang aktif. Tidak ada log tab lain yang bocor |
+| V-55 | Pindah antar tab dengan panel terbuka | Header panel ikut berubah, dan daftar log ikut berganti mengikuti tab aktif |
+| V-56 | Tutup salah satu tab uji, buka lagi | Tab baru mulai dari nol. Buffer tab yang ditutup dibuang |
+| V-57 | Klik **Run all scenarios** 40 kali (tahan Enter di tombol) | Hitungan "captured" berhenti di 500, tidak terus naik. Panel tetap responsif |
+| V-58 | Di halaman uji buka DevTools, jalankan `history.pushState({}, '', '/fake-route')` | Muncul baris `PAGE` berisi `Page load: .../fake-route`. Log sebelumnya tidak terhapus |
+| V-59 | Reload halaman uji, hitung baris `PAGE` | Tepat **satu** baris per reload, bukan dua. Dedupe bekerja |
+| V-60 | Di DevTools halaman uji jalankan `console.log('after devtools')` | Baris masuk ke panel. Rapspect dan DevTools bisa hidup bersamaan tanpa konflik |
+
+---
+
+## 7. Masalah umum dan solusinya
+
+### 7.1 Panel kosong
+
+Urutkan dari kemungkinan terbesar.
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| Empty state `No tracks yet` padahal halaman sudah dipakai | Panel dibuka **setelah** halaman dimuat. Rapspect hanya melihat kejadian setelah dia terpasang | Reload halaman (F5). Ini memang yang diinstruksikan teks empty state |
+| Muncul notice `Can't read this page...` | Tab aktif adalah `chrome://`, `chrome-extension://`, `about:`, `view-source:`, atau Chrome Web Store. Chrome melarang semua extension menyuntik ke sana | Buka halaman web biasa. Bukan bug, dan tidak bisa diperbaiki dari sisi kode |
+| Notice menyebut **Allow access to file URLs** | Halaman dibuka dari `file://` | `chrome://extensions` → **Details** pada Rapspect → nyalakan **Allow access to file URLs** → reload halaman. Lebih baik lagi: pakai `node tools/serve.js` |
+| Header panel menampilkan judul tab yang **salah** | Panel masih menunjuk tab sebelumnya | Klik tab yang dituju sekali lagi. Panel mengikuti `chrome.tabs.onActivated` |
+| Panel kosong padahal halaman aktif dan normal | Buffer sudah di-Clear, atau semua entri tersaring habis oleh filter | Periksa hitungan di footer. Kalau `0 shown / 120 captured`, masalahnya filter: kosongkan Search dan hapus centang Failed only |
+
+### 7.2 Log tidak muncul
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| Entri berhenti masuk setelah kamu mengubah kode | Extension di-reload, tapi content script di halaman masih versi lama dan context-nya sudah mati | Reload halaman yang diuji. Selalu dua langkah: reload extension, lalu reload halaman |
+| Semua console masuk, tapi request tidak ada | Request dibuat bukan dengan `fetch`/XHR — misalnya `<img>`, `<script>`, `sendBeacon`, atau WebSocket | Batas yang diketahui, tercatat di `docs/DECISIONS.md` bagian 6. Perlu `webRequest` atau CDP di v2 |
+| Request masuk, tapi console tidak ada | Halaman menambal ulang `console.*` **setelah** Rapspect | Cek di DevTools: `console.log.toString()`. Kalau bukan milik Rapspect, halaman menimpanya. Tidak bisa diatasi tanpa CDP |
+| Beberapa log hilang di halaman yang sangat berisik | Antrean jembatan penuh (batas 1000 entri antar-flush) dan yang tertua dibuang | Wajar. Kalau mengganggu, naikkan `MAX_QUEUE` di `src/content/bridge-isolated.js` |
+| Hitungan berhenti di 500 | Ring buffer sudah penuh, entri tertua dibuang. Ini memang spesifikasinya | Klik **Clear**, atau Export JSON sebelum buffer meluap |
+| Tidak ada apa pun, dan kartu extension menunjukkan **Errors** | Ada error load, biasanya salah path di `manifest.json` | Klik **Errors** di kartu, baca pesannya, perbaiki, lalu **Reload** |
+| Log dari dalam iframe tidak muncul | Untuk iframe `about:blank` atau `srcdoc`, content script bisa tidak tersuntik | Batas yang diketahui. Iframe dengan URL http/https normal tetap tertangkap |
+
+### 7.3 Service worker inactive
+
+Yang paling penting: **`inactive` itu normal, bukan kerusakan.** MV3 memang
+mematikan service worker setelah beberapa puluh detik tanpa event.
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| Kartu extension menulis **service worker (inactive)** | Perilaku normal MV3 | Tidak perlu diapa-apakan. Worker bangun sendiri saat ada pesan masuk |
+| Log yang lama hilang setelah idle | Buffer memori ikut hilang saat worker mati, dan cerminan di `storage.session` gagal termuat | Periksa console service worker. Kalau ada `gagal memuat buffer dari storage.session`, pastikan izin `storage` masih ada di `manifest.json` |
+| Log hilang total setelah Chrome ditutup dan dibuka | `chrome.storage.session` memang dibuang saat browser tutup | Sesuai desain (README bagian 4: tidak ada penyimpanan lintas sesi). Export JSON sebelum menutup Chrome |
+| `[Rapspect] service worker aktif` muncul berulang di console | Worker bangun-tidur berkali-kali | Normal. Baris itu ditulis setiap kali worker dievaluasi |
+| Console service worker kosong, dan tidak ada yang bereaksi | Worker crash saat evaluasi, biasanya karena `importScripts` gagal | Cek path `/src/shared/rapspect-core.js` benar-benar ada. Path di `importScripts` diawali `/` dan dihitung dari root extension |
+| Panel dibuka tapi entri pertama tidak masuk | Pesan pertama dipakai untuk membangunkan worker dan hilang bersamanya | Sudah ditangani: panel meminta snapshot dua kali dan mengirim `rp:ping` saat start. Kalau masih terjadi, reload halaman |
+
+### 7.4 Ikon tidak tampil
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| Ikon toolbar berupa puzzle piece generik | `icon16/32/48/128.png` belum ada, jadi `manifest.json` sengaja tidak menyebut ikon | Perilaku yang diharapkan sekarang. Siapkan keempat PNG sesuai README bagian 9, lalu tempel blok dari `docs/DECISIONS.md` bagian 3.3 |
+| Ikon Rapspect tidak terlihat di toolbar sama sekali | Chrome menyembunyikannya di menu overflow | Klik ikon puzzle di toolbar, lalu pin Rapspect |
+| Setelah menempel blok `icons`, extension gagal di-load dengan `Could not load icon` | Salah satu PNG tidak ada atau nama file-nya beda | Cocokkan nama file persis: `assets/icons/icon16.png` dan seterusnya. Semua huruf kecil |
+| Ikon muncul sebagai papan catur abu-abu | Ikon dibuat dari `Rapspect.jpg` apa adanya. Pola papan catur itu piksel asli, bukan transparansi — JPG tidak punya alpha channel | Ekspor ulang ke PNG dengan transparansi asli, atau isi lingkaran badge dengan warna solid (`--rp-cream` atau putih). README bagian 9 |
+| Ikon 16x16 jadi gumpalan tidak terbaca | Satu gambar diperkecil, bukan empat gambar dengan tingkat detail berbeda | Ikuti tabel penyederhanaan progresif di README bagian 9: tanpa tassel dan tanpa gigi di 16x16 |
+| Logo di banner README GitHub tidak muncul | README menunjuk `assets/Rapspect.jpg` | Sudah diperbaiki: salinan file ada di `assets/Rapspect.jpg`. File asli di root tidak dihapus |
+
+---
+
+## 8. Sebelum melaporkan bug Rapspect
+
+Sertakan enam hal ini, supaya tidak perlu tanya-jawab bolak-balik:
+
+1. Versi Chrome (`chrome://version`, baris pertama)
+2. URL halaman yang diuji, atau sebut "test-page.html via localhost"
+3. Isi console **service worker** (bagian 5)
+4. Isi console **panel** (klik kanan di panel → Inspect)
+5. File hasil **Export JSON** — sudah diredaksi, aman dilampirkan
+6. ID checklist yang gagal, misalnya "V-24 gagal"
