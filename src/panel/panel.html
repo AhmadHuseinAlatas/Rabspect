@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<!--
+  Rapspect - side panel
+
+  CSP halaman extension MV3 melarang script inline dan `eval`. Karena itu tidak
+  ada satu pun atribut `onclick=` di file ini, dan tidak ada blok <script> yang
+  berisi kode. Semua event di-bind dari panel.js.
+
+  Urutan <script> di akhir body penting: rapspect-core.js harus sudah dievaluasi
+  sebelum panel.js berjalan, karena panel.js memakai daftar header dan field
+  yang disensor dari sana untuk menampilkan indikator redaction.
+-->
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rapspect</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+
+  <header class="rp-header">
+    <div class="rp-brand">
+      <!-- alt kosong dengan sengaja: nama produk sudah ditulis sebagai teks di
+           sebelahnya, jadi alt yang berisi "Rapspect" membuat screen reader
+           membaca nama itu dua kali. -->
+      <img class="rp-brand__mark" src="../../assets/icons/icon48.png" alt="" width="22" height="22">
+      <span class="rp-brand__name">Rapspect</span>
+    </div>
+    <button id="rp-theme" class="rp-btn rp-btn--ghost" type="button">Light mode</button>
+  </header>
+
+  <p id="rp-target" class="rp-target">Detecting active tab...</p>
+
+  <div class="rp-toolbar">
+
+    <div class="rp-row-tools">
+      <label class="rp-field">
+        <span class="rp-sr">Search logs</span>
+        <input id="rp-search" class="rp-input" type="search" placeholder="Search text, URL, status" autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+
+    <div class="rp-row-tools rp-levels" role="group" aria-label="Filter by level">
+      <button class="rp-chip" type="button" data-level="error" aria-pressed="true">Error</button>
+      <button class="rp-chip" type="button" data-level="warn"  aria-pressed="true">Warn</button>
+      <button class="rp-chip" type="button" data-level="info"  aria-pressed="true">Info</button>
+      <button class="rp-chip" type="button" data-level="log"   aria-pressed="true">Log</button>
+      <button class="rp-chip" type="button" data-level="debug" aria-pressed="true">Debug</button>
+    </div>
+
+    <div class="rp-row-tools">
+      <label class="rp-check">
+        <input id="rp-failed" type="checkbox">
+        <span>Failed only (status &gt;= 400)</span>
+      </label>
+    </div>
+
+    <div class="rp-row-tools rp-actions">
+      <button id="rp-clear"  class="rp-btn" type="button">Clear</button>
+      <button id="rp-copy"   class="rp-btn" type="button">Copy as text</button>
+      <button id="rp-export" class="rp-btn rp-btn--primary" type="button">Export JSON</button>
+    </div>
+
+  </div>
+
+  <main class="rp-main">
+
+    <!-- Pesan untuk halaman yang memang tidak bisa diakses extension.
+         Dibedakan dari empty state supaya QA tidak mengira Rapspect rusak. -->
+    <section id="rp-blocked" class="rp-notice" hidden>
+      <p id="rp-blocked-text" class="rp-notice__text"></p>
+    </section>
+
+    <!-- Empty state. Teks persis mengikuti README bagian 10. -->
+    <section id="rp-empty" class="rp-empty" hidden>
+      <p class="rp-empty__title">No tracks yet &mdash; reload the page to start tracking.</p>
+      <p class="rp-empty__hint">Rapspect only sees what happens after it is loaded into the page.</p>
+    </section>
+
+    <!-- Keadaan yang BERBEDA dari empty state: ada data, tapi filter yang aktif
+         menyembunyikan semuanya. Sebelum ini ada, area daftar hanya jadi kosong
+         tanpa penjelasan, dan tidak ada cara tahu kenapa 20 baris menghilang. -->
+    <section id="rp-nomatch" class="rp-empty" hidden>
+      <p class="rp-empty__title" id="rp-nomatch-title"></p>
+      <p class="rp-empty__hint" id="rp-nomatch-why"></p>
+      <button id="rp-reset" class="rp-btn rp-btn--primary" type="button">Reset filters</button>
+    </section>
+
+    <!-- Daftar log. Sengaja tanpa aria-live: 500 baris yang terus masuk akan
+         membuat screen reader membacakan tanpa henti. Ringkasan jumlah di
+         footer yang diberi aria-live, dan itu cukup. -->
+    <div id="rp-list" class="rp-list" role="list" aria-label="Captured logs and requests"></div>
+
+  </main>
+
+  <footer class="rp-status">
+    <span id="rp-count" class="rp-status__count" aria-live="polite">0 shown / 0 captured</span>
+    <span id="rp-redaction" class="rp-status__redaction" tabindex="0">Redaction ON</span>
+  </footer>
+
+  <!-- Dialog peringatan sebelum export, diwajibkan README bagian 11.
+       Dibuat manual, bukan window.confirm(), supaya isinya bisa menyebut
+       daftar yang disensor dan tetap tampil konsisten di side panel. -->
+  <div id="rp-modal" class="rp-modal" hidden>
+    <div class="rp-modal__box" role="dialog" aria-modal="true" aria-labelledby="rp-modal-title" aria-describedby="rp-modal-desc">
+      <h2 id="rp-modal-title" class="rp-modal__title">Export JSON</h2>
+      <p id="rp-modal-desc" class="rp-modal__desc">
+        This file can still contain sensitive data. Review it before attaching it
+        to a bug report or pushing it to a public repository.
+      </p>
+      <ul class="rp-modal__list">
+        <li id="rp-modal-headers">Redacted headers: &mdash;</li>
+        <li id="rp-modal-fields">Redacted fields: &mdash;</li>
+        <li>Response bodies are never captured.</li>
+      </ul>
+      <div class="rp-modal__actions">
+        <button id="rp-modal-cancel" class="rp-btn" type="button">Cancel</button>
+        <button id="rp-modal-confirm" class="rp-btn rp-btn--primary" type="button">Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../shared/rapspect-core.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "Rapspect",
+  "version": "1.0.0",
+  "description": "Track your page - console logs and network requests, made readable.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open Rapspect panel",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/shared/rapspect-core.js",
+        "src/content/capture-main.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/content/bridge-isolated.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "ISOLATED"
+    }
+  ]
+}

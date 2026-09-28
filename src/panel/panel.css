@@ -1,0 +1,552 @@
+/* =============================================================================
+   Rapspect - panel styles
+
+   ATURAN YANG DITEGAKKAN FILE INI
+
+   1. Semua warna hidup di blok token di bawah. TIDAK ADA nilai warna di tengah
+      file - termasuk shadow dan overlay modal, yang biasanya jadi tempat
+      `rgba(0,0,0,.4)` menyelinap masuk. Keduanya punya token sendiri.
+
+   2. README bagian 5: "Tema hidup di kulit aplikasi. Area data harus
+      membosankan dan sangat terbaca." Penegakannya:
+        - warna level HANYA dipakai untuk badge level dan garis 3px di tepi kiri
+        - teks isi log SELALU --rp-text, tidak pernah diwarnai per level
+        - tidak ada latar baris berwarna, tidak ada gradient, tidak ada animasi,
+          tidak ada emoji di area daftar
+        - navy dan cream hanya di header, toolbar, dan tombol utama
+
+   3. README bagian 6 aturan 3: semua warna semantik wajib lolos kontras 4.5:1
+      di kedua tema. Beberapa nilai light mode di README tidak lolos saat
+      diverifikasi; nilai yang dipakai dan angka rasionya dicatat sebagai
+      komentar di sebelahnya, audit lengkapnya di docs/DECISIONS.md bagian 1.
+   ========================================================================== */
+
+/* ---------- BRAND (dari logo, README bagian 6) ---------- */
+:root {
+  --rp-navy:        #1F3A5F;
+  --rp-navy-deep:   #16293F;
+  --rp-sand:        #E8C68F;
+  --rp-sand-dark:   #D4A96A;
+  --rp-cream:       #FAF0DC;
+  --rp-brown:       #6B4A2E;
+
+  --rp-red:         #EE3B33;
+  --rp-yellow:      #FFD21E;
+  --rp-teal:        #159FA8;
+
+  /* Tipografi, README bagian 7. Font tidak diambil dari jaringan: MV3 melarang
+     remote code dan menambah file font berarti aset baru yang harus di-review
+     lisensinya. Fallback di bawah ditulis oleh README sendiri. Di Windows
+     hasil praktisnya Segoe UI + Consolas/Cascadia Code, keduanya monospace
+     sejati sehingga timestamp dan status code tetap rata kolom. */
+  --rp-font-ui:   Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --rp-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, "Courier New", monospace;
+
+  --rp-size-ui:   14px;   /* README bagian 7 */
+  --rp-size-log:  13px;   /* README bagian 7 */
+  --rp-leading:   1.5;    /* README bagian 7 */
+
+  --rp-gap:       8px;
+  --rp-radius:    4px;
+}
+
+/* ---------- DARK (default) ---------- */
+/* Seluruh nilai di bawah sama dengan README bagian 6: hasil audit menunjukkan
+   semuanya sudah lolos 4.5:1 di latar --rp-bg maupun di baris zebra
+   --rp-surface-alt, jadi tidak ada yang diubah. */
+:root {
+  --rp-bg:          #101C2E;
+  --rp-surface:     #16293F;
+  --rp-surface-alt: #1D3352;   /* baris zebra */
+  --rp-border:      #2C4A70;
+  --rp-text:        #FAF0DC;   /* 15.12:1 di bg, 11.27:1 di zebra */
+  --rp-text-muted:  #A8BACD;   /*  8.61:1 di bg,  6.42:1 di zebra */
+
+  --rp-error:       #FF6B5E;   /*  6.12:1 di bg,  4.56:1 di zebra - lolos, margin tipis */
+  --rp-warn:        #FFD21E;   /* 11.80:1 di bg,  8.80:1 di zebra */
+  --rp-info:        #3FBFC7;   /*  7.73:1 di bg,  5.76:1 di zebra */
+  --rp-success:     #4FC98A;   /*  8.19:1 di bg,  6.10:1 di zebra */
+  /* BERBEDA dari README bagian 6 (#9AA8BC). Bukan karena kontras - nilai README
+     lolos 7.09:1. Masalahnya nilai itu hampir identik dengan --rp-text-muted
+     #A8BACD di atas, dan dua token yang warnanya sama tapi maknanya berbeda
+     justru melanggar aturan "satu warna, satu makna" (README bagian 6 nomor 2).
+     Akibat nyatanya: chip filter Debug yang AKTIF terlihat seperti chip mati.
+     Nilai baru digeser ke biru supaya jelas beda dari muted maupun dari cream
+     yang dipakai level Log. Detail di docs/DECISIONS.md bagian 1.6. */
+  --rp-debug:       #7EA8DB;   /*  6.93:1 di bg,  5.17:1 di zebra */
+
+  --rp-on-navy:     #FAF0DC;   /* 10.15:1 di atas --rp-navy */
+  --rp-shadow:      rgb(0 0 0 / 45%);
+  --rp-overlay:     rgb(16 28 46 / 78%);
+}
+
+/* ---------- LIGHT ---------- */
+[data-theme="light"] {
+  --rp-bg:          #F0F3F7;
+  --rp-surface:     #FFFFFF;
+  --rp-surface-alt: #F7F9FB;
+  --rp-border:      #D6DEE8;
+  --rp-text:        #16293F;   /* 13.26:1 di bg */
+  --rp-text-muted:  #5A6B7F;   /*  4.91:1 di bg */
+
+  /* Empat nilai di bawah BERBEDA dari README bagian 6. Nilai README gagal
+     ambang 4.5:1 saat diverifikasi; hue dipertahankan supaya aturan
+     "satu warna satu makna" tetap utuh. Detail di docs/DECISIONS.md 1.3-1.4. */
+  --rp-error:       #B3261E;   /* README #D32F27 = 4.49:1 GAGAL -> ini 5.87:1 */
+  --rp-warn:        #8A6100;   /* README #B58600 = 2.96:1 GAGAL -> ini 4.98:1 */
+  --rp-info:        #0B6C74;   /* README #0E7C85 = 4.45:1 GAGAL -> ini 5.53:1 */
+  --rp-success:     #1A7A4D;   /* README #1E8E5A = 3.72:1 GAGAL -> ini 4.80:1 */
+  /* README tidak menyediakan nilai debug untuk light mode. Percobaan pertama
+     memakai #5A6B7F, dan itu keliru: nilainya PERSIS SAMA dengan
+     --rp-text-muted di atas, sehingga chip Debug aktif dan chip mati benar-benar
+     tidak bisa dibedakan. Digeser ke biru slate yang lebih dalam. */
+  --rp-debug:       #3F5A80;   /*  6.32:1 di bg */
+
+  --rp-on-navy:     #FAF0DC;
+  --rp-shadow:      rgb(22 41 63 / 18%);
+  --rp-overlay:     rgb(22 41 63 / 45%);
+}
+
+/* ---------- Reset seperlunya ---------- */
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--rp-bg);
+  color: var(--rp-text);
+  font-family: var(--rp-font-ui);
+  font-size: var(--rp-size-ui);
+  line-height: var(--rp-leading);
+  /* Side panel sempit (kira-kira 300-500px). Semua layout di bawah dirancang
+     untuk lebar itu, bukan untuk jendela penuh. */
+  min-width: 260px;
+}
+
+.rp-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Focus ring memakai --rp-text supaya kontrasnya selalu tinggi di kedua tema.
+   --rp-border terlalu lemah (1.63:1 di dark) untuk dipakai sebagai satu-satunya
+   penanda fokus. */
+:focus-visible {
+  outline: 2px solid var(--rp-text);
+  outline-offset: 1px;
+}
+
+/* ---------- Header: ini "kulit aplikasi", boleh bertema ---------- */
+.rp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rp-gap);
+  padding: 8px 10px;
+  background: var(--rp-navy);
+  color: var(--rp-on-navy);
+  flex: 0 0 auto;
+}
+
+.rp-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Logo onta. Memakai icon48.png, bukan icon16.png, walaupun ditampilkan 22px:
+   sumber yang lebih besar membuat hasilnya tetap tajam di layar HiDPI, dan
+   ukurannya hanya beberapa kilobyte. */
+.rp-brand__mark {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.rp-brand__name {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.rp-target {
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--rp-surface);
+  border-bottom: 1px solid var(--rp-border);
+  color: var(--rp-text-muted);
+  font-family: var(--rp-font-mono);
+  font-size: 12px;
+  /* URL panjang tidak boleh melebarkan panel. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* ---------- Toolbar ---------- */
+.rp-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--rp-surface);
+  border-bottom: 1px solid var(--rp-border);
+  flex: 0 0 auto;
+}
+
+.rp-row-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.rp-field { display: block; width: 100%; }
+
+.rp-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--rp-text-muted);
+  border-radius: var(--rp-radius);
+  background: var(--rp-bg);
+  color: var(--rp-text);
+  font-family: var(--rp-font-mono);
+  font-size: var(--rp-size-log);
+}
+
+.rp-input::placeholder { color: var(--rp-text-muted); }
+
+.rp-btn {
+  padding: 5px 9px;
+  border: 1px solid var(--rp-text-muted);
+  border-radius: var(--rp-radius);
+  background: var(--rp-bg);
+  color: var(--rp-text);
+  font-family: var(--rp-font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rp-btn:hover { border-color: var(--rp-text); }
+
+.rp-btn--primary {
+  background: var(--rp-navy);
+  border-color: var(--rp-navy);
+  color: var(--rp-on-navy);
+}
+
+.rp-btn--ghost {
+  background: transparent;
+  border-color: var(--rp-on-navy);
+  color: var(--rp-on-navy);
+}
+
+/* Chip filter level. Warna level dipakai di sini karena ini kontrol, bukan
+   area data. Yang diwarnai hanya titik penanda dan teks chip.
+
+   VERSI PERTAMA SALAH, DAN INI PERBAIKANNYA.
+   Sebelumnya status nyala/mati HANYA dibedakan oleh warna: chip mati memakai
+   --rp-text-muted, chip nyala memakai warna levelnya. Itu rusak untuk dua
+   level yang warnanya memang netral:
+     - Debug (--rp-debug) nilainya sangat dekat dengan --rp-text-muted, jadi
+       chip Debug yang AKTIF terlihat seperti chip yang mati
+     - di light mode nilainya bahkan sempat persis sama
+   Selain itu, membedakan status hanya dengan warna gagal untuk siapa pun yang
+   kesulitan membedakan warna.
+
+   Sekarang statusnya dibedakan oleh BENTUK, dan warna hanya menambah informasi:
+     aktif  -> titik terisi penuh
+     mati   -> titik berongga (hanya cincin) + label dicoret + diredupkan
+   Bentuk tetap terbaca walaupun warnanya tidak terbaca. */
+.rp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid var(--rp-text-muted);
+  border-radius: 999px;
+  background: var(--rp-bg);
+  color: var(--rp-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rp-chip::before {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  /* Cincin tipis selalu ada; isinya yang berubah menurut status. */
+  border: 2px solid currentColor;
+  background: transparent;
+}
+
+/* --- status MATI --- */
+.rp-chip[aria-pressed="false"] {
+  color: var(--rp-text-muted);
+  border-color: var(--rp-border);
+  text-decoration: line-through;
+  /* Cukup untuk terasa redup, masih jauh di atas ambang keterbacaan. */
+  opacity: 0.75;
+}
+
+/* --- status AKTIF: titik terisi + warna level --- */
+.rp-chip[aria-pressed="true"]::before { background: currentColor; }
+.rp-chip[aria-pressed="true"] { color: var(--rp-text); border-color: var(--rp-text); }
+.rp-chip[aria-pressed="true"][data-level="error"] { color: var(--rp-error); border-color: var(--rp-error); }
+.rp-chip[aria-pressed="true"][data-level="warn"]  { color: var(--rp-warn);  border-color: var(--rp-warn); }
+.rp-chip[aria-pressed="true"][data-level="info"]  { color: var(--rp-info);  border-color: var(--rp-info); }
+.rp-chip[aria-pressed="true"][data-level="log"]   { color: var(--rp-text);  border-color: var(--rp-text); }
+.rp-chip[aria-pressed="true"][data-level="debug"] { color: var(--rp-debug); border-color: var(--rp-debug); }
+
+.rp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--rp-text);
+  cursor: pointer;
+}
+
+.rp-actions { justify-content: flex-start; }
+
+/* ---------- Area data: mulai dari sini harus membosankan ---------- */
+.rp-main {
+  flex: 1 1 auto;
+  overflow: auto;
+  background: var(--rp-bg);
+}
+
+.rp-list {
+  font-family: var(--rp-font-mono);
+  font-size: var(--rp-size-log);
+  line-height: var(--rp-leading);
+}
+
+.rp-entry {
+  border-bottom: 1px solid var(--rp-border);
+}
+
+/* Zebra striping. Diterapkan ke pembungkus entri, bukan ke baris, supaya blok
+   detail yang bisa dibuka tetap ikut warna baris induknya dan pola zebra tidak
+   pecah saat ada baris yang diperluas. */
+.rp-entry:nth-child(even) { background: var(--rp-surface-alt); }
+
+.rp-row {
+  display: grid;
+  grid-template-columns: 5.5em 4.2em minmax(0, 1fr);
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: default;
+  /* Teks harus bisa diseleksi manual: QA sering menyalin satu baris saja. */
+  user-select: text;
+}
+
+/* Garis tipis di tepi kiri adalah SATU-SATUNYA tempat warna level menyentuh
+   baris log. Cukup untuk dipindai mata, tidak sampai mewarnai area data. */
+.rp-entry[data-level="error"] .rp-row { box-shadow: inset 3px 0 0 0 var(--rp-error); }
+.rp-entry[data-level="warn"]  .rp-row { box-shadow: inset 3px 0 0 0 var(--rp-warn); }
+.rp-entry[data-level="info"]  .rp-row { box-shadow: inset 3px 0 0 0 var(--rp-info); }
+.rp-entry[data-level="debug"] .rp-row { box-shadow: inset 3px 0 0 0 var(--rp-debug); }
+.rp-entry[data-level="log"]   .rp-row { box-shadow: inset 3px 0 0 0 var(--rp-border); }
+
+.rp-row__time {
+  color: var(--rp-text-muted);
+  white-space: nowrap;
+}
+
+.rp-row__tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rp-entry[data-level="error"] .rp-row__tag { color: var(--rp-error); }
+.rp-entry[data-level="warn"]  .rp-row__tag { color: var(--rp-warn); }
+.rp-entry[data-level="info"]  .rp-row__tag { color: var(--rp-info); }
+.rp-entry[data-level="debug"] .rp-row__tag { color: var(--rp-debug); }
+.rp-entry[data-level="log"]   .rp-row__tag { color: var(--rp-text-muted); }
+
+/* Isi log selalu --rp-text. Tidak pernah diwarnai per level: warna sudah
+   disampaikan oleh badge dan garis tepi, dan teks berwarna justru menurunkan
+   keterbacaan di area yang harus dipindai cepat. */
+.rp-row__msg {
+  color: var(--rp-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Status code dan method dibedakan dengan berat huruf, bukan dengan warna
+   tambahan, supaya aturan "satu warna satu makna" tidak bocor. */
+.rp-meta { color: var(--rp-text-muted); }
+.rp-strong { font-weight: 700; }
+
+.rp-entry--navigation .rp-row {
+  background: var(--rp-surface);
+  box-shadow: inset 3px 0 0 0 var(--rp-text-muted);
+}
+.rp-entry--navigation .rp-row__msg { color: var(--rp-text-muted); }
+
+.rp-toggle {
+  grid-column: 3;
+  justify-self: start;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rp-text-muted);
+  font-family: var(--rp-font-ui);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.rp-details {
+  margin: 0;
+  padding: 4px 8px 8px 8px;
+  border-top: 1px dashed var(--rp-border);
+}
+
+.rp-details pre {
+  margin: 0;
+  font-family: var(--rp-font-mono);
+  font-size: 12px;
+  color: var(--rp-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rp-redacted-flag {
+  color: var(--rp-warn);
+  font-family: var(--rp-font-ui);
+  font-size: 11px;
+}
+
+/* ---------- Empty state: satu-satunya tempat karakter onta boleh muncul ---- */
+.rp-empty {
+  padding: 28px 16px;
+  text-align: center;
+}
+
+.rp-empty__title {
+  margin: 0 0 6px 0;
+  color: var(--rp-text);
+  font-size: var(--rp-size-ui);
+}
+
+.rp-empty__hint {
+  margin: 0;
+  color: var(--rp-text-muted);
+  font-size: 12px;
+}
+
+.rp-notice {
+  margin: 10px;
+  padding: 10px;
+  border: 1px solid var(--rp-warn);
+  border-radius: var(--rp-radius);
+  background: var(--rp-surface);
+}
+
+.rp-notice__text {
+  margin: 0;
+  color: var(--rp-text);
+  font-size: 12px;
+}
+
+/* ---------- Status bar ---------- */
+.rp-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rp-gap);
+  padding: 5px 10px;
+  background: var(--rp-surface);
+  border-top: 1px solid var(--rp-border);
+  color: var(--rp-text-muted);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.rp-status__count { font-family: var(--rp-font-mono); }
+
+/* Indikator redaction diwajibkan README bagian 11. Dibuat mencolok secukupnya
+   supaya kalau nanti bisa dimatikan (v1.1), status OFF tidak terlewat. */
+.rp-status__redaction {
+  padding: 1px 6px;
+  border: 1px solid var(--rp-success);
+  border-radius: 999px;
+  color: var(--rp-success);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---------- Modal peringatan export ---------- */
+.rp-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: var(--rp-overlay);
+}
+
+.rp-modal[hidden] { display: none; }
+
+.rp-modal__box {
+  width: 100%;
+  max-width: 320px;
+  padding: 14px;
+  border: 1px solid var(--rp-border);
+  border-radius: var(--rp-radius);
+  background: var(--rp-surface);
+  box-shadow: 0 8px 24px var(--rp-shadow);
+}
+
+.rp-modal__title {
+  margin: 0 0 6px 0;
+  font-size: var(--rp-size-ui);
+  color: var(--rp-text);
+}
+
+.rp-modal__desc {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: var(--rp-text);
+}
+
+.rp-modal__list {
+  margin: 0 0 12px 0;
+  padding-left: 18px;
+  font-family: var(--rp-font-mono);
+  font-size: 11px;
+  color: var(--rp-text-muted);
+}
+
+.rp-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Hormati preferensi sistem: tidak ada transisi apa pun kalau pengguna meminta
+   gerakan dikurangi. Di area data memang tidak ada animasi sama sekali. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

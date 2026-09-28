@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<!--
+  Rapspect - test page
+
+  Halaman ini SENGAJA rusak. Semua error di bawah memang diminta terjadi.
+
+  PENTING: buka halaman ini lewat http://localhost, bukan lewat file://
+  Halaman file:// punya origin opaque, sehingga fetch lintas origin diblokir CORS.
+  Akibatnya skenario T-04 (fetch berhasil) dan T-05 (fetch 404) akan tampil
+  sebagai gagal, dan kamu tidak bisa membedakan bug Rapspect dari batasan
+  browser. Cara menyalakan server lokal tanpa npm install ada di docs/TESTING.md.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rapspect test page</title>
+  <style>
+    /* Token lokal, supaya tidak ada nilai warna tersebar di tengah markup. */
+    :root {
+      --t-bg: #101C2E;
+      --t-surface: #16293F;
+      --t-border: #2C4A70;
+      --t-text: #FAF0DC;
+      --t-muted: #A8BACD;
+      --t-accent: #3FBFC7;
+      --t-warn: #FFD21E;
+      --t-error: #FF6B5E;
+      --t-mono: "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--t-bg);
+      color: var(--t-text);
+      font-family: system-ui, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    h1 { margin: 0 0 4px; font-size: 20px; }
+    p.lead { margin: 0 0 18px; color: var(--t-muted); }
+    section {
+      margin-bottom: 14px;
+      padding: 12px 14px;
+      background: var(--t-surface);
+      border: 1px solid var(--t-border);
+      border-radius: 6px;
+    }
+    h2 { margin: 0 0 8px; font-size: 14px; color: var(--t-accent); }
+    button {
+      margin: 0 6px 6px 0;
+      padding: 6px 10px;
+      border: 1px solid var(--t-muted);
+      border-radius: 4px;
+      background: var(--t-bg);
+      color: var(--t-text);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--t-text); }
+    button.primary { border-color: var(--t-accent); color: var(--t-accent); }
+    code, kbd { font-family: var(--t-mono); font-size: 12px; color: var(--t-warn); }
+    #status {
+      font-family: var(--t-mono);
+      font-size: 12px;
+      color: var(--t-muted);
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .warn { color: var(--t-warn); }
+    .err { color: var(--t-error); }
+    ul { margin: 6px 0 0; padding-left: 20px; color: var(--t-muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+
+  <h1>Rapspect test page</h1>
+  <p class="lead">
+    This page intentionally produces logs, failed requests, and crashes.
+    Open the Rapspect side panel first, then reload this page.
+  </p>
+
+  <section>
+    <h2>Run everything</h2>
+    <button id="run-all" class="primary" type="button">Run all scenarios</button>
+    <label style="font-size:13px;color:var(--t-muted)">
+      <input id="auto" type="checkbox" checked> auto-run on page load
+    </label>
+    <p id="status">idle</p>
+  </section>
+
+  <section>
+    <h2>Console API</h2>
+    <button data-run="console-log" type="button">console.log</button>
+    <button data-run="console-info" type="button">console.info</button>
+    <button data-run="console-warn" type="button">console.warn</button>
+    <button data-run="console-error" type="button">console.error</button>
+    <button data-run="console-debug" type="button">console.debug</button>
+    <button data-run="console-object" type="button">console.log with secret object</button>
+  </section>
+
+  <section>
+    <h2>Network</h2>
+    <button data-run="fetch-ok" type="button">fetch 200</button>
+    <button data-run="fetch-404" type="button">fetch 404</button>
+    <button data-run="fetch-dns" type="button">fetch to a domain that does not exist</button>
+    <button data-run="xhr" type="button">XMLHttpRequest</button>
+    <button data-run="auth" type="button">POST with fake Authorization</button>
+  </section>
+
+  <section>
+    <h2>Crashes</h2>
+    <button data-run="throw" type="button">uncaught error</button>
+    <button data-run="reject" type="button">unhandled promise rejection</button>
+    <button data-run="resource" type="button">broken image (resource error)</button>
+  </section>
+
+  <section>
+    <h2>What Rapspect should show</h2>
+    <ul>
+      <li><code>POST with fake Authorization</code> must display
+          <code>Authorization: [REDACTED]</code> and
+          <code>"password":"[REDACTED]"</code> in the details block.</li>
+      <li><code>fetch to a domain that does not exist</code> must appear as
+          <code>FAILED</code>, not as a status code.</li>
+      <li>Every network row must show a duration in milliseconds.</li>
+      <li>Response bodies must never appear anywhere.</li>
+    </ul>
+  </section>
+
+  <!-- Script ditulis inline dengan sengaja: halaman ini harus tetap berfungsi
+       walau file-nya disalin sendirian ke mesin lain. Ini halaman web biasa,
+       bukan halaman extension, jadi CSP MV3 tidak berlaku di sini. -->
+  <script>
+  (function () {
+    'use strict';
+
+    // Endpoint publik yang mengirim header CORS, jadi bisa dipakai dari
+    // http://localhost tanpa server backend sendiri.
+    var API = 'https://jsonplaceholder.typicode.com';
+
+    // .invalid adalah TLD yang dijamin tidak pernah ada (RFC 2606), jadi
+    // kegagalannya deterministik - bukan bergantung domain yang kebetulan mati.
+    var DEAD_HOST = 'https://rapspect-this-host-does-not-exist.invalid/ping';
+
+    var statusEl = document.getElementById('status');
+
+    function say(text, cls) {
+      statusEl.textContent = text;
+      statusEl.className = cls || '';
+    }
+
+    var scenarios = {
+
+      // ---------------- console ----------------
+      'console-log': function () {
+        console.log('T-01 plain log from the test page', { step: 1, ok: true });
+      },
+      'console-info': function () {
+        console.info('T-02 info level message');
+      },
+      'console-warn': function () {
+        console.warn('T-03 warning: deprecated function called');
+      },
+      'console-error': function () {
+        // console.error, BUKAN throw. Bedanya harus terlihat di panel: yang ini
+        // laporan sadar dari kode, bukan kecelakaan.
+        console.error('T-04 error logged on purpose', new Error('boom from console.error'));
+      },
+      'console-debug': function () {
+        console.debug('T-05 debug level message');
+      },
+      'console-object': function () {
+        // Uji redaction pada argumen objek console. Tidak satu pun nilai di
+        // bawah boleh terbaca di panel atau di file export.
+        console.log('T-06 config dump', {
+          endpoint: API,
+          apiKey: 'SHOULD-NOT-APPEAR-ak_live_123',
+          nested: { accessToken: 'SHOULD-NOT-APPEAR-tok_abc', retries: 3 },
+          pin: '4321',
+          safeValue: 'this one SHOULD be visible'
+        });
+      },
+
+      // ---------------- network ----------------
+      'fetch-ok': function () {
+        return fetch(API + '/todos/1')
+          .then(function (r) { return r.json(); })
+          .then(function () { console.log('T-07 fetch 200 finished'); });
+      },
+      'fetch-404': function () {
+        // 404 BUKAN exception di fetch: promise-nya resolve. Baris ini menguji
+        // bahwa Rapspect membaca res.status, bukan hanya menangkap throw.
+        return fetch(API + '/this-path-does-not-exist-404')
+          .then(function (r) { console.log('T-08 fetch resolved with status', r.status); });
+      },
+      'fetch-dns': function () {
+        // Di sini fetch benar-benar melempar TypeError. Panel harus menampilkan
+        // FAILED, bukan angka status.
+        return fetch(DEAD_HOST)
+          .then(function () { console.log('T-09 unexpected success'); })
+          .catch(function (err) { console.warn('T-09 fetch failed as expected:', err.message); });
+      },
+      'xhr': function () {
+        return new Promise(function (resolve) {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', API + '/users/2');
+          xhr.setRequestHeader('X-Test-Case', 'T-10');
+          xhr.onloadend = function () {
+            console.log('T-10 XHR finished with status', xhr.status);
+            resolve();
+          };
+          xhr.send();
+        });
+      },
+      'auth': function () {
+        // Skenario redaction utama. Header DAN body sama-sama berisi nilai yang
+        // tidak boleh pernah muncul di panel maupun di file export.
+        // Tokennya palsu dan tidak berlaku di mana pun.
+        return fetch(API + '/posts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer SHOULD-NOT-APPEAR-fake-jwt-header.payload.signature',
+            'X-Api-Key': 'SHOULD-NOT-APPEAR-key_live_98765',
+            'X-Request-Id': 'visible-request-id-T11'
+          },
+          body: JSON.stringify({
+            username: 'qa.engineer',
+            password: 'SHOULD-NOT-APPEAR-hunter2',
+            apiKey: 'SHOULD-NOT-APPEAR-ak_live_456',
+            refreshToken: 'SHOULD-NOT-APPEAR-rt_789',
+            pin: '1234',
+            note: 'this field SHOULD stay visible'
+          })
+        }).then(function (r) {
+          console.log('T-11 authorized POST finished with status', r.status);
+        }).catch(function (err) {
+          // Kalau jaringan mati, entri request-nya tetap tercatat dan redaction
+          // tetap bisa diverifikasi. Jadi ini bukan kegagalan tes.
+          console.warn('T-11 POST failed, redaction is still verifiable:', err.message);
+        });
+      },
+
+      // ---------------- crashes ----------------
+      'throw': function () {
+        // Dilempar dari dalam setTimeout supaya benar-benar menjadi uncaught
+        // error di window, bukan exception yang tertangkap pemanggilnya.
+        setTimeout(function () {
+          throw new Error('T-12 uncaught error from the test page');
+        }, 0);
+      },
+      'reject': function () {
+        // Sengaja tanpa .catch(). Ini yang memicu unhandledrejection.
+        Promise.reject(new Error('T-13 promise rejected with nobody listening'));
+      },
+      'resource': function () {
+        // Gagal muat resource. Ini event 'error' pada elemen, bukan console API,
+        // jadi sekaligus menguji listener fase capture di Rapspect.
+        var img = document.createElement('img');
+        img.alt = '';
+        img.style.display = 'none';
+        img.src = DEAD_HOST.replace('/ping', '/missing-image.png');
+        document.body.appendChild(img);
+      }
+    };
+
+    function run(name) {
+      try {
+        var result = scenarios[name]();
+        if (result && typeof result.then === 'function') {
+          return result.catch(function (e) { console.warn('scenario', name, 'rejected:', e); });
+        }
+        return Promise.resolve();
+      } catch (e) {
+        console.warn('scenario', name, 'threw synchronously:', e);
+        return Promise.resolve();
+      }
+    }
+
+    async function runAll() {
+      var order = [
+        'console-log', 'console-info', 'console-warn', 'console-error',
+        'console-debug', 'console-object',
+        'fetch-ok', 'fetch-404', 'auth', 'xhr', 'fetch-dns',
+        'resource', 'reject', 'throw'
+      ];
+      say('running ' + order.length + ' scenarios...');
+      for (var i = 0; i < order.length; i++) {
+        await run(order[i]);
+      }
+      say('done. Check the Rapspect panel. Expect at least 14 entries, ' +
+          'including 3 failed requests and 2 crashes.', 'warn');
+    }
+
+    document.getElementById('run-all').addEventListener('click', runAll);
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-run]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var name = btn.getAttribute('data-run');
+        say('ran: ' + name);
+        run(name);
+      });
+    });
+
+    // Auto-run setelah load, karena empty state Rapspect memang menyuruh
+    // "reload the page to start tracking" - jadi reload saja harus sudah
+    // menghasilkan data tanpa klik apa pun.
+    window.addEventListener('load', function () {
+      if (!document.getElementById('auto').checked) { say('auto-run disabled'); return; }
+      setTimeout(runAll, 400);
+    });
+  })();
+  </script>
+</body>
+</html>
