@@ -1,14 +1,20 @@
 <!DOCTYPE html>
 <!--
-  Rapspect - side panel
+  Rapspect - satu dokumen, dua tempat tampil
+
+  File ini dipakai oleh DUA permukaan sekaligus:
+    1. popup toolbar  -> manifest: action.default_popup = panel.html?surface=popup
+    2. side panel     -> manifest: side_panel.default_path = panel.html
+
+  Kenapa satu file, bukan dua: seluruh isi UI sama persis, yang berbeda hanya
+  ukuran dan satu tombol. Menyalin markup ke dua file berarti setiap perbaikan
+  harus dikerjakan dua kali, dan cepat atau lambat salah satunya ketinggalan.
+  Pembedanya dibaca dari query string oleh panel.js, lalu ditulis ke atribut
+  data-surface pada <html> supaya CSS bisa menanganinya.
 
   CSP halaman extension MV3 melarang script inline dan `eval`. Karena itu tidak
   ada satu pun atribut `onclick=` di file ini, dan tidak ada blok <script> yang
-  berisi kode. Semua event di-bind dari panel.js.
-
-  Urutan <script> di akhir body penting: rapspect-core.js harus sudah dievaluasi
-  sebelum panel.js berjalan, karena panel.js memakai daftar header dan field
-  yang disensor dari sana untuk menampilkan indikator redaction.
+  berisi kode.
 -->
 <html lang="en" data-theme="dark">
 <head>
@@ -27,10 +33,31 @@
       <img class="rp-brand__mark" src="../../assets/icons/icon48.png" alt="" width="22" height="22">
       <span class="rp-brand__name">Rapspect</span>
     </div>
-    <button id="rp-theme" class="rp-btn rp-btn--ghost" type="button">Light mode</button>
+    <div class="rp-header__actions">
+      <!-- Hanya tampil di popup. Popup tertutup begitu pengguna mengklik
+           halaman, jadi untuk sesi pengujian panjang side panel yang dibutuhkan. -->
+      <button id="rp-open-panel" class="rp-btn rp-btn--ghost rp-only-popup" type="button"
+              title="Keep Rapspect open while you click around the page">Open side panel</button>
+      <button id="rp-theme" class="rp-btn rp-btn--ghost" type="button">Light mode</button>
+    </div>
   </header>
 
   <p id="rp-target" class="rp-target">Detecting active tab...</p>
+
+  <!-- Tab = LENSA ke satu aliran yang sama, bukan tujuh laporan terpisah.
+       README bagian 2 menyebut "informasi tersebar di dua tab" sebagai masalah
+       yang mau diselesaikan, dan bagian 3 meminta semuanya "dalam satu panel".
+       Karena itu tab All tetap default dan tetap gabungan; tab lain hanya
+       mempersempit tampilan tanpa memecah datanya. -->
+  <div class="rp-tabs" role="tablist" aria-label="Filter by type">
+    <button class="rp-tab" role="tab" type="button" data-scope="all"     aria-selected="true">All<span class="rp-tab__count" data-count-for="all">0</span></button>
+    <button class="rp-tab" role="tab" type="button" data-scope="error"   aria-selected="false">Error<span class="rp-tab__count" data-count-for="error">0</span></button>
+    <button class="rp-tab" role="tab" type="button" data-scope="warn"    aria-selected="false">Warn<span class="rp-tab__count" data-count-for="warn">0</span></button>
+    <button class="rp-tab" role="tab" type="button" data-scope="info"    aria-selected="false">Info<span class="rp-tab__count" data-count-for="info">0</span></button>
+    <button class="rp-tab" role="tab" type="button" data-scope="log"     aria-selected="false">Log<span class="rp-tab__count" data-count-for="log">0</span></button>
+    <button class="rp-tab" role="tab" type="button" data-scope="debug"   aria-selected="false">Debug<span class="rp-tab__count" data-count-for="debug">0</span></button>
+    <button class="rp-tab" role="tab" type="button" data-scope="network" aria-selected="false">Network<span class="rp-tab__count" data-count-for="network">0</span></button>
+  </div>
 
   <div class="rp-toolbar">
 
@@ -39,14 +66,6 @@
         <span class="rp-sr">Search logs</span>
         <input id="rp-search" class="rp-input" type="search" placeholder="Search text, URL, status" autocomplete="off" spellcheck="false">
       </label>
-    </div>
-
-    <div class="rp-row-tools rp-levels" role="group" aria-label="Filter by level">
-      <button class="rp-chip" type="button" data-level="error" aria-pressed="true">Error</button>
-      <button class="rp-chip" type="button" data-level="warn"  aria-pressed="true">Warn</button>
-      <button class="rp-chip" type="button" data-level="info"  aria-pressed="true">Info</button>
-      <button class="rp-chip" type="button" data-level="log"   aria-pressed="true">Log</button>
-      <button class="rp-chip" type="button" data-level="debug" aria-pressed="true">Debug</button>
     </div>
 
     <div class="rp-row-tools">
@@ -87,6 +106,19 @@
       <button id="rp-reset" class="rp-btn rp-btn--primary" type="button">Reset filters</button>
     </section>
 
+    <!-- Catatan khusus tab Network. Muncul hanya kalau tab Network dipilih dan
+         belum ada request yang tertangkap. Ini menjawab kebingungan yang nyata:
+         DevTools memperlihatkan puluhan baris network sementara Rapspect kosong,
+         karena CSS, gambar, dan script TIDAK lewat fetch atau XHR. -->
+    <section id="rp-net-hint" class="rp-notice rp-notice--quiet" hidden>
+      <p class="rp-notice__text">
+        Rapspect captures <strong>fetch()</strong> and <strong>XMLHttpRequest</strong> only.
+        Stylesheets, images, scripts, fonts and navigations are loaded by the browser
+        itself and never pass through them, so they will not appear here even though
+        DevTools lists them.
+      </p>
+    </section>
+
     <!-- Daftar log. Sengaja tanpa aria-live: 500 baris yang terus masuk akan
          membuat screen reader membacakan tanpa henti. Ringkasan jumlah di
          footer yang diberi aria-live, dan itu cukup. -->
@@ -101,7 +133,7 @@
 
   <!-- Dialog peringatan sebelum export, diwajibkan README bagian 11.
        Dibuat manual, bukan window.confirm(), supaya isinya bisa menyebut
-       daftar yang disensor dan tetap tampil konsisten di side panel. -->
+       daftar yang disensor dan tetap tampil konsisten di kedua permukaan. -->
   <div id="rp-modal" class="rp-modal" hidden>
     <div class="rp-modal__box" role="dialog" aria-modal="true" aria-labelledby="rp-modal-title" aria-describedby="rp-modal-desc">
       <h2 id="rp-modal-title" class="rp-modal__title">Export JSON</h2>

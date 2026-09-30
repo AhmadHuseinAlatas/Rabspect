@@ -14,6 +14,22 @@
   var core = window.__RAPSPECT_CORE__;
 
   // ---------------------------------------------------------------------------
+  // Permukaan: popup toolbar atau side panel
+  // ---------------------------------------------------------------------------
+
+  // Ditulis PALING AWAL, sebelum apa pun yang lain, karena CSS memakai atribut
+  // ini untuk menentukan ukuran popup. CSS tidak bisa membaca query string, dan
+  // CSP MV3 melarang script inline yang bisa menuliskannya lebih dulu di <head>,
+  // jadi baris ini adalah kesempatan paling awal yang tersedia.
+  var surface = 'panel';
+  try {
+    if (new URLSearchParams(window.location.search).get('surface') === 'popup') {
+      surface = 'popup';
+    }
+  } catch (e) { /* URL aneh: perlakukan sebagai side panel */ }
+  document.documentElement.setAttribute('data-surface', surface);
+
+  // ---------------------------------------------------------------------------
   // Elemen
   // ---------------------------------------------------------------------------
   var el = {
@@ -39,10 +55,20 @@
     modalFields:  document.getElementById('rp-modal-fields'),
     modalCancel:  document.getElementById('rp-modal-cancel'),
     modalConfirm: document.getElementById('rp-modal-confirm'),
-    chips:        Array.prototype.slice.call(document.querySelectorAll('.rp-chip'))
+    openPanel:    document.getElementById('rp-open-panel'),
+    netHint:      document.getElementById('rp-net-hint'),
+    tabs:         Array.prototype.slice.call(document.querySelectorAll('.rp-tab')),
+    counts:       Array.prototype.slice.call(document.querySelectorAll('.rp-tab__count'))
   };
 
   var THEME_KEY = 'rp:theme';
+
+  /** Daftar lensa yang tersedia. Urutannya sama dengan urutan tab di HTML.
+   *  'all' sengaja pertama dan jadi default: README bagian 3 meminta console dan
+   *  network tampil "dalam satu panel yang sama", dan bagian 2 menyebut
+   *  informasi yang tersebar antar tab sebagai masalah yang mau diselesaikan.
+   *  Tab di sini adalah LENSA ke satu aliran, bukan tujuh laporan terpisah. */
+  var SCOPES = ['all', 'error', 'warn', 'info', 'log', 'debug', 'network'];
 
   var state = {
     tabId: -1,
@@ -50,15 +76,20 @@
     tabTitle: '',
     entries: [],
     max: core.LIMITS.MAX_ENTRIES,
-    levels: {},              // level -> boolean
+    scope: 'all',
     failedOnly: false,
     query: '',
     expanded: {},            // entry.id -> true
     blockedReason: null,
-    lastFiltered: []
+    lastFiltered: [],
+    // Id entri tertinggi yang sudah pernah dirender. Dipakai untuk menandai
+    // baris mana yang benar-benar BARU, supaya isyarat kedatangan hanya jalan
+    // di baris itu dan bukan di seluruh daftar setiap render.
+    maxRenderedId: 0,
+    primed: false,
+    // Hitungan per tab pada render sebelumnya, untuk mendeteksi kenaikan.
+    prevCounts: {}
   };
-
-  for (var li = 0; li < core.LEVELS.length; li++) state.levels[core.LEVELS[li]] = true;
 
   // ---------------------------------------------------------------------------
   // Halaman yang tidak bisa diakses extension
@@ -207,17 +238,27 @@
   // Filter
   // ---------------------------------------------------------------------------
 
-  function passesFilter(entry) {
-    // "Failed only" berarti benar-benar hanya request gagal: entri console dan
-    // pembatas navigasi ikut disembunyikan, karena itu yang diminta filter.
+  /** Apakah entri termasuk dalam lensa yang diminta.
+   *
+   *  Pembatas navigasi (PAGE) hanya muncul di lensa 'all'. Secara teknis
+   *  levelnya 'info', tapi menampilkannya di tab Info membuat tab itu tercampur
+   *  hal yang bukan pesan aplikasi. Di tab All dia tetap penting sebagai penanda
+   *  urutan kejadian. */
+  function matchesScope(entry, scope) {
+    if (scope === 'all') return true;
+    if (scope === 'network') return entry.kind === 'network';
+    if (entry.kind === 'navigation') return false;
+    return entry.level === scope;
+  }
+
+  /** Filter yang berlaku di SEMUA lensa: pencarian teks dan "Failed only".
+   *  Dipisah dari matchesScope supaya hitungan tiap tab bisa dihitung dengan
+   *  aturan yang sama persis seperti isi tab itu saat dibuka - hitungan yang
+   *  tidak cocok dengan isinya lebih buruk daripada tidak ada hitungan. */
+  function passesCommon(entry) {
     if (state.failedOnly) {
       if (entry.kind !== 'network') return false;
       if (!(entry.failed || entry.status >= 400)) return false;
-    } else {
-      // Pembatas navigasi dikecualikan dari filter level. Tanpa pengecualian
-      // ini, mematikan level "info" akan menghilangkan penanda reload halaman
-      // dan urutan kejadian jadi sulit dibaca.
-      if (entry.kind !== 'navigation' && !state.levels[entry.level]) return false;
     }
     if (state.query) {
       var haystack = entryToLine(entry);
@@ -225,6 +266,61 @@
       if (haystack.toLowerCase().indexOf(state.query) === -1) return false;
     }
     return true;
+  }
+
+  function passesFilter(entry) {
+    return matchesScope(entry, state.scope) && passesCommon(entry);
+  }
+
+  /** Hitung isi setiap tab sekaligus dalam satu lintasan per tab.
+   *  500 entri kali 7 lensa adalah 3500 pemeriksaan - tidak terasa, dan jauh
+   *  lebih sederhana dibaca daripada menghitung bertahap sambil menjaga
+   *  konsistensi. */
+  function countsByScope() {
+    var out = {};
+    for (var s = 0; s < SCOPES.length; s++) {
+      var scope = SCOPES[s];
+      var n = 0;
+      for (var i = 0; i < state.entries.length; i++) {
+        if (matchesScope(state.entries[i], scope) && passesCommon(state.entries[i])) n++;
+      }
+      out[scope] = n;
+    }
+    return out;
+  }
+
+  function renderCounts() {
+    var counts = countsByScope();
+
+    el.counts.forEach(function (node) {
+      var scope = node.getAttribute('data-count-for');
+      var value = counts[scope] || 0;
+      var before = state.prevCounts[scope];
+
+      node.textContent = String(value);
+      // Angka nol diredupkan supaya mata langsung menemukan tab yang ada isinya.
+      node.classList.toggle('rp-tab__count--zero', value === 0);
+
+      // Isyarat singkat kalau hitungan naik. Hanya saat NAIK: turun karena
+      // pengguna mengubah filter bukan kabar baru, jadi tidak perlu ditandai.
+      if (typeof before === 'number' && value > before) {
+        node.classList.remove('rp-tab__count--bump');
+        // Reflow dipaksa sekali supaya animasi bisa dijalankan ulang walaupun
+        // kelasnya baru saja dilepas pada frame yang sama.
+        void node.offsetWidth;
+        node.classList.add('rp-tab__count--bump');
+      }
+      state.prevCounts[scope] = value;
+    });
+  }
+
+  function switchScope(scope) {
+    if (SCOPES.indexOf(scope) === -1) return;
+    state.scope = scope;
+    el.tabs.forEach(function (tab) {
+      tab.setAttribute('aria-selected', tab.getAttribute('data-scope') === scope ? 'true' : 'false');
+    });
+    render();
   }
 
   // ---------------------------------------------------------------------------
@@ -250,13 +346,8 @@
   function describeActiveFilters() {
     var reasons = [];
 
+    if (state.scope !== 'all') reasons.push('tab "' + state.scope + '" is selected');
     if (state.failedOnly) reasons.push('"Failed only (status >= 400)" is on');
-
-    var muted = [];
-    for (var i = 0; i < core.LEVELS.length; i++) {
-      if (!state.levels[core.LEVELS[i]]) muted.push(core.LEVELS[i]);
-    }
-    if (muted.length) reasons.push('muted levels: ' + muted.join(', '));
 
     // Diambil dari nilai input, bukan dari state.query, karena state.query sudah
     // dijadikan huruf kecil untuk pencarian - menampilkannya kembali apa adanya
@@ -267,22 +358,20 @@
     return reasons;
   }
 
-  /** Kembalikan semua filter ke keadaan awal: seluruh level menyala, tidak ada
-   *  pembatasan request gagal, pencarian kosong. */
+  /** Kembalikan semua filter ke keadaan awal: lensa All, tidak ada pembatasan
+   *  request gagal, pencarian kosong. */
   function resetFilters() {
-    for (var i = 0; i < core.LEVELS.length; i++) state.levels[core.LEVELS[i]] = true;
-    el.chips.forEach(function (chip) { chip.setAttribute('aria-pressed', 'true'); });
-
     state.failedOnly = false;
     el.failed.checked = false;
 
     state.query = '';
     el.search.value = '';
 
-    render();
+    // switchScope sudah memanggil render(), jadi tidak perlu dipanggil dua kali.
+    switchScope('all');
   }
 
-  /** Sembunyikan ketiga panel penjelas sekaligus.
+  /** Sembunyikan semua panel penjelas sekaligus.
    *  Dipanggil di awal setiap cabang render() supaya tidak ada sisa panel dari
    *  keadaan sebelumnya yang menempel - bug klasik kalau tiap cabang hanya
    *  mengurus panelnya sendiri. */
@@ -290,9 +379,12 @@
     el.blocked.hidden = true;
     el.empty.hidden = true;
     el.nomatch.hidden = true;
+    el.netHint.hidden = true;
   }
 
   function render() {
+    renderCounts();
+
     // ---- keadaan 1: halaman tidak bisa diakses extension ----
     if (state.blockedReason) {
       hideAllNotices();
@@ -338,6 +430,13 @@
         : 'No filter is active, so this is unexpected. Please report it.';
 
       el.nomatch.hidden = false;
+
+      // Kalau yang kosong adalah tab Network, penjelasan filter saja tidak
+      // cukup. Penyebab paling sering bukan filter, tapi kesalahpahaman: DevTools
+      // memperlihatkan puluhan baris network sementara Rapspect kosong, karena
+      // stylesheet, gambar, dan script tidak pernah lewat fetch atau XHR.
+      if (state.scope === 'network') el.netHint.hidden = false;
+
       el.list.textContent = '';
       el.count.textContent = '0 shown / ' + state.entries.length +
                              ' captured (buffer ' + state.max + ')';
@@ -348,11 +447,20 @@
     hideAllNotices();
 
     var frag = document.createDocumentFragment();
-    for (var j = 0; j < filtered.length; j++) frag.appendChild(buildEntryNode(filtered[j]));
+    var highestId = state.maxRenderedId;
+    for (var j = 0; j < filtered.length; j++) {
+      frag.appendChild(buildEntryNode(filtered[j]));
+      if (filtered[j].id > highestId) highestId = filtered[j].id;
+    }
 
     // Satu penggantian isi, bukan menambah node satu per satu ke DOM hidup.
     el.list.textContent = '';
     el.list.appendChild(frag);
+
+    // Render pertama TIDAK dianimasikan. Tanpa penjaga ini, membuka panel pada
+    // halaman yang sudah punya 500 entri akan menjalankan 500 animasi sekaligus.
+    state.maxRenderedId = highestId;
+    state.primed = true;
 
     el.count.textContent = filtered.length + ' shown / ' + state.entries.length +
                            ' captured (buffer ' + state.max + ')';
@@ -360,7 +468,14 @@
 
   function buildEntryNode(entry) {
     var wrap = document.createElement('div');
-    wrap.className = 'rp-entry' + (entry.kind === 'navigation' ? ' rp-entry--navigation' : '');
+    var classes = 'rp-entry';
+    if (entry.kind === 'navigation') classes += ' rp-entry--navigation';
+    // Isyarat kedatangan hanya untuk baris yang benar-benar baru, dan hanya
+    // setelah render pertama. Tanpa dua syarat itu seluruh daftar akan berkedip
+    // setiap kali ada batch masuk, dan itu justru melanggar aturan README
+    // bagian 5 tentang area data yang harus tenang.
+    if (state.primed && entry.id > state.maxRenderedId) classes += ' rp-entry--new';
+    wrap.className = classes;
     wrap.setAttribute('data-level', entry.level);
     wrap.setAttribute('role', 'listitem');
 
@@ -551,6 +666,7 @@
       '# page     : ' + (state.tabUrl || '-'),
       '# title    : ' + (state.tabTitle || '-'),
       '# exported : ' + new Date().toISOString(),
+      '# tab      : ' + state.scope + (state.failedOnly ? ' + failed only' : ''),
       '# entries  : ' + state.lastFiltered.length + ' of ' + state.entries.length +
         ' captured (buffer ' + state.max + ')',
       '# redaction: ON - headers [' + core.REDACTED_HEADERS.join(', ') + '] and fields [' +
@@ -635,10 +751,11 @@
       capturedCount: state.entries.length,
       exportedCount: state.lastFiltered.length,
       filters: {
-        levels: Object.keys(state.levels).filter(function (k) { return state.levels[k]; }),
+        tab: state.scope,
         failedOnly: state.failedOnly,
         query: state.query
       },
+      surface: surface,
       entries: state.lastFiltered
     };
 
@@ -703,14 +820,45 @@
     render();
   });
 
-  el.chips.forEach(function (chip) {
-    chip.addEventListener('click', function () {
-      var level = chip.getAttribute('data-level');
-      var next = chip.getAttribute('aria-pressed') !== 'true';
-      chip.setAttribute('aria-pressed', next ? 'true' : 'false');
-      state.levels[level] = next;
-      render();
+  el.tabs.forEach(function (tab, index) {
+    tab.addEventListener('click', function () {
+      switchScope(tab.getAttribute('data-scope'));
     });
+
+    // Navigasi panah antar tab adalah perilaku yang diharapkan dari sebuah
+    // tablist, dan tanpa ini pengguna keyboard harus menekan Tab tujuh kali
+    // untuk mencapai Network.
+    tab.addEventListener('keydown', function (ev) {
+      var delta = 0;
+      if (ev.key === 'ArrowRight') delta = 1;
+      else if (ev.key === 'ArrowLeft') delta = -1;
+      else if (ev.key === 'Home') delta = -index;
+      else if (ev.key === 'End') delta = el.tabs.length - 1 - index;
+      else return;
+
+      ev.preventDefault();
+      var next = (index + delta + el.tabs.length) % el.tabs.length;
+      el.tabs[next].focus();
+      switchScope(el.tabs[next].getAttribute('data-scope'));
+    });
+  });
+
+  // Popup tertutup begitu pengguna mengklik halaman. Untuk sesi pengujian yang
+  // panjang side panel yang dibutuhkan, jadi tombol ini memindahkannya.
+  el.openPanel.addEventListener('click', async function () {
+    try {
+      if (!chrome.sidePanel || !chrome.sidePanel.open) {
+        flashButton(el.openPanel, 'Needs Chrome 116+', 'Open side panel');
+        return;
+      }
+      // Panggilan ini WAJIB berasal dari gerakan pengguna. Klik tombol memenuhi
+      // syarat itu; memanggilnya dari service worker tidak akan bekerja.
+      if (state.tabId >= 0) await chrome.sidePanel.open({ tabId: state.tabId });
+      else await chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+      window.close();
+    } catch (e) {
+      flashButton(el.openPanel, 'Could not open', 'Open side panel');
+    }
   });
 
   // Delegasi event: tombol "details" dibuat ulang setiap render, jadi listener

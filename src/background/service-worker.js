@@ -287,35 +287,35 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
 // Side panel
 // -----------------------------------------------------------------------------
 
-/** Membuat klik ikon toolbar membuka side panel.
- *  Dipanggil di onInstalled DAN onStartup: setelan ini bertahan, tapi
- *  memanggilnya dua kali tidak berbahaya, sedangkan tidak terpanggil sama
- *  sekali membuat ikon terasa rusak. */
-async function enablePanelOnActionClick() {
+/** Klik ikon toolbar sekarang membuka POPUP, bukan side panel.
+ *
+ *  Sejak `action.default_popup` ada di manifest, Chrome mengabaikan
+ *  `openPanelOnActionClick`. Nilainya tetap disetel ke false secara eksplisit,
+ *  karena setelan ini BERTAHAN di profil pengguna: siapa pun yang sudah pernah
+ *  memasang versi sebelumnya masih menyimpan nilai true, dan meninggalkannya
+ *  begitu saja membuat perilaku ikon berbeda antar mesin tanpa sebab yang
+ *  terlihat.
+ *
+ *  Side panel tetap ada dan tetap bisa dibuka: lewat tombol "Open side panel"
+ *  di dalam popup, atau dari menu side panel bawaan Chrome. Popup dipilih
+ *  sebagai muka utama atas permintaan pemilik produk; harganya popup tertutup
+ *  saat halaman diklik, dan tombol itu yang menutupi kekurangan tersebut. */
+async function configureActionBehaviour() {
   try {
     if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
-      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false });
     }
   } catch (e) {
     console.warn('[Rapspect] setPanelBehavior gagal:', e);
   }
 }
 
-chrome.runtime.onInstalled.addListener(function () { enablePanelOnActionClick(); });
-chrome.runtime.onStartup.addListener(function () { enablePanelOnActionClick(); });
+chrome.runtime.onInstalled.addListener(function () { configureActionBehaviour(); });
+chrome.runtime.onStartup.addListener(function () { configureActionBehaviour(); });
 
-// Jaring pengaman: kalau setPanelBehavior gagal (misalnya Chrome yang lebih
-// tua), onClicked tetap terpasang sehingga ikon masih melakukan sesuatu.
-// Kalau setPanelBehavior berhasil, listener ini tidak akan pernah terpanggil.
-chrome.action.onClicked.addListener(function (tab) {
-  try {
-    if (chrome.sidePanel && chrome.sidePanel.open && tab && typeof tab.id === 'number') {
-      chrome.sidePanel.open({ tabId: tab.id });
-    }
-  } catch (e) {
-    console.warn('[Rapspect] tidak bisa membuka side panel:', e);
-  }
-});
+// Tidak ada listener chrome.action.onClicked lagi. Dengan default_popup
+// terpasang, Chrome TIDAK PERNAH memicu onClicked - listener di situ hanya akan
+// jadi kode mati yang menyesatkan pembaca berikutnya.
 
 // Satu baris agar mudah dikenali di halaman "Inspect service worker".
 console.log('[Rapspect] service worker aktif, buffer maksimum', MAX_ENTRIES, 'entri per tab');
