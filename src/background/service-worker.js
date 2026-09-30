@@ -325,14 +325,22 @@ chrome.tabs.onUpdated.addListener(function (tabId, changeInfo) {
   // terjadi sangat sering dan tidak berarti apa-apa untuk log.
   if (!changeInfo.url) return;
 
+  // Halaman yang tidak bisa dibaca extension tidak mendapat pembatas. Sebelum
+  // ini, membuka tab baru lalu pindah ke sebuah situs selalu diawali baris
+  // "Page load: chrome://newtab/" - pembatas untuk halaman yang tidak mungkin
+  // menghasilkan satu log pun, dan yang panelnya sendiri menolak dibaca.
+  if (core.isRestrictedUrl(changeInfo.url)) return;
+
   // Ini yang menangkap navigasi SPA (history.pushState): content script TIDAK
   // dimuat ulang pada kasus itu, jadi tanpa listener ini pembatasnya tidak
   // pernah muncul. Untuk reload biasa, dedupe di isDuplicateNav yang bekerja.
+  var navUrl = core.redactUrl(changeInfo.url).url;
   addEntries(tabId, [{
     kind: 'navigation',
     level: 'info',
     t: Date.now(),
-    text: 'Page load: ' + core.redactUrl(changeInfo.url).url
+    url: navUrl,
+    text: 'Page load: ' + navUrl
   }]);
 });
 

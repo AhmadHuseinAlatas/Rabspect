@@ -16,6 +16,11 @@
  * Karena itu setiap kasus di bawah memeriksa dua hal: struktur token yang
  * diharapkan, DAN keutuhan teks.
  *
+ * Bagian terakhir memeriksa cara pembatas halaman (PAGE) ditampilkan: halaman
+ * mana yang dianggap tidak bisa dibaca, dan bentuk ringkas URL satu baris.
+ * Keduanya urusan tampilan yang sama - memotong URL dari BARIS boleh, asalkan
+ * URL lengkapnya tetap ada di blok detail dan laporan.
+ *
  * CARA PAKAI (dari folder proyek):
  *   node tools/selftest-highlight.js
  * Exit code 0 kalau semua lolos, 1 kalau ada yang gagal.
@@ -179,6 +184,83 @@ function valuesOf(text, type) {
   checkLossless('teks berisi markup', hostile);
   check('markup tidak diubah sama sekali',
         core.tokenizeLog(hostile).map((t) => t.v).join('') === hostile);
+}
+
+// -----------------------------------------------------------------------------
+// Pembatas halaman: halaman mana yang tidak bisa dibaca
+// -----------------------------------------------------------------------------
+// Satu definisi dipakai dua tempat: pesan "Can't read this page" di panel dan
+// penyaring pembatas di service worker. Kalau salah di sini, pembatas untuk
+// chrome://newtab/ muncul lagi di awal setiap tab baru.
+{
+  const restricted = [
+    'chrome://newtab/', 'chrome://settings', 'chrome-extension://abcdef/popup.html',
+    'chrome-untrusted://print/', 'edge://settings', 'brave://settings', 'about:blank',
+    'devtools://devtools/bundled/inspector.html', 'view-source:https://example.com/',
+    // data: tidak ada di daftar larangan versi sebelumnya. Daftar yang
+    // DIIZINKAN menangkapnya tanpa perlu diingat.
+    'data:text/html,<p>hi</p>', 'javascript:void(0)',
+    'https://chromewebstore.google.com/detail/abc',
+    'https://chrome.google.com/webstore/detail/abc', ''
+  ];
+  const readable = [
+    'https://www.google.com/search?q=x', 'http://localhost:8080/test-page.html',
+    'HTTPS://EXAMPLE.COM/', 'file:///C:/work/test-page.html',
+    // Hanya host Web Store yang diblokir, bukan semua subdomain google.com.
+    'https://chrome.google.com/something-else', 'https://webstore.example.com/'
+  ];
+
+  const wronglyOpen = restricted.filter((u) => !core.isRestrictedUrl(u));
+  const wronglyClosed = readable.filter((u) => core.isRestrictedUrl(u));
+  check('halaman terlarang dikenali (' + restricted.length + ' kasus)',
+        wronglyOpen.length === 0, 'dianggap bisa dibaca: ' + wronglyOpen.join(', '));
+  check('halaman biasa tidak dianggap terlarang (' + readable.length + ' kasus)',
+        wronglyClosed.length === 0, 'dianggap terlarang: ' + wronglyClosed.join(', '));
+  check('null dan undefined tidak melempar',
+        core.isRestrictedUrl(null) === true && core.isRestrictedUrl(undefined) === true);
+}
+
+// -----------------------------------------------------------------------------
+// Pembatas halaman: URL ringkas satu baris
+// -----------------------------------------------------------------------------
+{
+  const google = 'https://www.google.com/search?q=failed+website+testter&oq=failed&gs_lcrp=' +
+                 'EgZjaHJvbWUyBggAEEUYOTIJCAEQIRgKGKABMgkIAhAhGAoYoAEyCQgDECEYChigAdIBCDM1NzhqMGo3qAIAsAIA' +
+                 '&sourceid=chrome&ie=UTF-8';
+  const g = core.compactUrl(google);
+  check('URL pencarian Google diringkas ke host dan path',
+        g.text === 'www.google.com/search?\u2026', g.text);
+  check('ringkasan ditandai terpotong', g.trimmed === true);
+
+  // http:// sengaja dibiarkan: halaman tidak aman layak terlihat oleh QA.
+  const local = core.compactUrl('http://localhost:8080/test-page.html');
+  check('http:// dibiarkan, tidak dipotong',
+        local.text === 'http://localhost:8080/test-page.html' && local.trimmed === false, local.text);
+
+  check('https:// dibuang karena itu keadaan normal',
+        core.compactUrl('https://example.com/page').text === 'example.com/page');
+
+  check('fragment diganti penanda #',
+        core.compactUrl('https://docs.test/guide#install').text === 'docs.test/guide#\u2026');
+
+  const plain = core.compactUrl('https://example.com/a');
+  check('URL pendek tanpa query tidak ditandai terpotong', plain.trimmed === false);
+
+  // Path panjang dipotong di TENGAH: host dan segmen terakhir yang biasanya
+  // menjelaskan halamannya.
+  const longPath = 'https://www.superside.com/' + 'deep/'.repeat(40) + 'ai-prompts-logo-design';
+  const lp = core.compactUrl(longPath);
+  check('path panjang tetap satu baris wajar (maks 80 karakter)',
+        lp.text.length <= 80, 'panjang ' + lp.text.length);
+  check('host dipertahankan di awal', lp.text.indexOf('www.superside.com/') === 0, lp.text);
+  check('segmen terakhir dipertahankan di akhir',
+        /ai-prompts-logo-design$/.test(lp.text), lp.text);
+  check('potongan tengah ditandai elipsis', lp.text.indexOf('\u2026') !== -1 && lp.trimmed);
+
+  check('string kosong tidak melempar', core.compactUrl('').text === '');
+  check('null tidak melempar', core.compactUrl(null).text === '');
+  check('tanda tanya tanpa isi tidak dianggap terpotong',
+        core.compactUrl('https://example.com/x?').trimmed === false);
 }
 
 // -----------------------------------------------------------------------------

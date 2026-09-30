@@ -638,6 +638,19 @@
     }
     if (typeof src.frameId === 'number') entry.frameId = src.frameId;
 
+    // Pembatas navigasi membawa URL-nya sebagai field tersendiri, supaya panel
+    // bisa menampilkannya ringkas tanpa mengurai ulang teks "Page load: ...".
+    // Kalau field itu tidak ada - entri dari versi sebelumnya, atau entri yang
+    // dipalsukan halaman - URL diambil dari teksnya. Dua-duanya melewati
+    // redactUrl: data dari halaman diperlakukan tidak dipercaya, sama seperti
+    // field lain di fungsi ini.
+    if (kind === 'navigation') {
+      var navSource = (typeof src.url === 'string' && src.url)
+        ? src.url
+        : String(src.text == null ? '' : src.text).replace(/^Page load:\s*/, '');
+      entry.url = redactUrl(navSource).url;
+    }
+
     if (kind === 'network') {
       entry.method = truncate(src.method || 'GET', 12).toUpperCase();
 
@@ -714,6 +727,76 @@
     if (entry.kind === 'navigation') return 'PAGE';
     if (entry.kind === 'error') return 'ERROR';
     return String(entry.level || 'log').toUpperCase();
+  }
+
+  /** Apakah halaman di URL ini TIDAK bisa dibaca extension.
+   *
+   *  Satu definisi untuk dua pemakai, dan itu alasan fungsi ini ada di core:
+   *  pesan "Can't read this page" di panel, dan penyaring pembatas navigasi di
+   *  service worker. Sebelumnya hanya panel yang tahu, sehingga service worker
+   *  tetap mencatat "Page load: chrome://newtab/" untuk halaman yang tidak
+   *  mungkin menghasilkan satu log pun.
+   *
+   *  Ditulis sebagai daftar yang DIIZINKAN, bukan daftar yang dilarang. Pola
+   *  `<all_urls>` di manifest hanya mencakup skema http, https, dan file; semua
+   *  skema lain - chrome:, edge:, about:, data:, view-source:, devtools: - tidak
+   *  pernah disuntik content script. Daftar larangan akan bolong setiap kali
+   *  ada skema yang terlupa, dan daftar sebelumnya memang melewatkan `data:`.
+   *
+   *  file:// dianggap BISA dibaca. Content script hanya jalan di sana setelah
+   *  pengguna menyalakan "Allow access to file URLs", dan panel punya pesan
+   *  khusus untuk itu; menganggapnya terlarang akan menyembunyikan jalan
+   *  keluarnya.
+   *
+   *  Chrome Web Store memakai https tapi tetap diblokir untuk semua extension,
+   *  jadi disebut eksplisit. */
+  function isRestrictedUrl(rawUrl) {
+    var u = String(rawUrl == null ? '' : rawUrl).trim();
+    if (!u) return true;
+    if (/^https?:\/\/chrome\.google\.com\/webstore(?:[/?#]|$)/i.test(u)) return true;
+    if (/^https?:\/\/chromewebstore\.google\.com(?:[/?#:]|$)/i.test(u)) return true;
+    return !/^(?:https?|file):/i.test(u);
+  }
+
+  /** Bentuk ringkas URL untuk SATU baris di panel.
+   *
+   *  Masalah yang diselesaikan terlihat langsung di layar: URL pencarian Google
+   *  membungkus sampai lima baris dan mendorong semua log lain ke bawah, padahal
+   *  pembatas halaman seharusnya baris paling tenang di daftar.
+   *
+   *  Yang dibuang dari baris, dan tetap tersedia utuh di blok detail serta
+   *  tooltip:
+   *    - query string dan fragment, diganti penanda `?...` atau `#...`
+   *    - `https://`, karena itu keadaan normal. `http://` SENGAJA dibiarkan:
+   *      halaman yang tidak aman justru hal yang layak terlihat oleh QA
+   *    - bagian tengah path yang terlalu panjang. Tengah, bukan ujung, karena
+   *      host dan segmen terakhir biasanya yang paling menjelaskan halamannya
+   *
+   *  Tidak pernah dipakai untuk laporan atau salinan. Bukti yang diekspor selalu
+   *  URL lengkap; ringkasan ini murni urusan tampilan.
+   *
+   *  @returns {{text: string, trimmed: boolean}} trimmed = ada yang tidak tampil */
+  function compactUrl(rawUrl, max) {
+    var url = String(rawUrl == null ? '' : rawUrl);
+    var limit = max || 80;
+    var trimmed = false;
+
+    var cut = url.search(/[?#]/);
+    var base = cut === -1 ? url : url.slice(0, cut);
+    var marker = '';
+    if (cut !== -1 && cut < url.length - 1) {
+      marker = url.charAt(cut) + '\u2026';
+      trimmed = true;
+    }
+
+    var shown = base.replace(/^https:\/\//i, '');
+    if (shown.length > limit) {
+      var head = Math.ceil((limit - 1) * 0.45);
+      var tail = limit - 1 - head;
+      shown = shown.slice(0, head) + '\u2026' + shown.slice(shown.length - tail);
+      trimmed = true;
+    }
+    return { text: shown + marker, trimmed: trimmed };
   }
 
   /** Satu baris teks datar. Dipakai pencarian, Copy as text, dan laporan. */
@@ -1201,6 +1284,8 @@
     formatTime: formatTime,
     formatBytes: formatBytes,
     tagFor: tagFor,
+    isRestrictedUrl: isRestrictedUrl,
+    compactUrl: compactUrl,
     entryToLine: entryToLine,
     entrySignature: entrySignature,
     mergeRepeat: mergeRepeat,

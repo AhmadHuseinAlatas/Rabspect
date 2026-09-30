@@ -211,6 +211,17 @@ function check(name, condition, detail) {
   const e = core.sanitizeEntry(null);
   check('entri null tidak melempar', e && e.kind === 'console');
 }
+{
+  // Pembatas navigasi kini membawa field url tersendiri. Field baru yang keluar
+  // dari halaman adalah jalur bocor baru, jadi ikut diperiksa: token di query
+  // string harus tersensor baik url dikirim sebagai field, maupun diambil dari
+  // teks entri versi lama yang belum punya field itu.
+  const fromField = core.sanitizeEntry({ kind: 'navigation', url: 'https://a.test/?token=' + LEAK });
+  const fromText = core.sanitizeEntry({ kind: 'navigation', text: 'Page load: https://a.test/?apiKey=' + LEAK });
+  check('url pembatas navigasi diredaksi, dari field maupun dari teks',
+        fromField.url.indexOf(LEAK) === -1 && fromText.url.indexOf(LEAK) === -1,
+        fromField.url + ' | ' + fromText.url);
+}
 
 // -----------------------------------------------------------------------------
 // Laporan

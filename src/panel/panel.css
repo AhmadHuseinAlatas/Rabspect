@@ -644,7 +644,19 @@ body {
   background: var(--rp-surface);
   box-shadow: inset 3px 0 0 0 var(--rp-text-muted);
 }
-.rp-entry--navigation .rp-row__msg { color: var(--rp-text-muted); }
+/* Pembatas halaman selalu SATU baris. overflow-wrap: anywhere dari aturan umum
+   .rp-row__msg dibatalkan di sini dengan sengaja: untuk pesan log, membungkus
+   lebih baik daripada memotong, tapi pembatas bukan data - dia penanda urutan,
+   dan URL panjangnya sudah diringkas oleh core.compactUrl(). Kalau masih lebih
+   lebar dari panel, ujungnya diberi elipsis dan URL lengkapnya ada di tooltip
+   serta blok detail. */
+.rp-entry--navigation .rp-row__msg {
+  color: var(--rp-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
 .rp-entry--navigation .rp-row__tag { color: var(--rp-text-muted); }
 
 .rp-toggle {

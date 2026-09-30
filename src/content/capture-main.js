@@ -489,11 +489,16 @@
   // antar-world tidak dijamin.
   if (window.top === window) {
     _setTimeout(function () {
+      // URL dikirim sebagai field tersendiri supaya panel bisa menampilkannya
+      // ringkas dalam satu baris. Teksnya tetap lengkap: itu yang dipakai
+      // pencarian, dedupe pembatas di service worker, dan laporan.
+      var pageUrl = core.redactUrl(String(window.location.href)).url;
       send({
         kind: 'navigation',
         level: 'info',
         t: _dateNow(),
-        text: 'Page load: ' + core.redactUrl(String(window.location.href)).url
+        url: pageUrl,
+        text: 'Page load: ' + pageUrl
       });
     }, 0);
   }

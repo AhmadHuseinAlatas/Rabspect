@@ -188,21 +188,20 @@
     var u = String(url || '');
     if (!u) return 'No active tab detected. Focus a normal web page, then reopen this panel.';
 
-    if (/^(chrome|edge|brave|opera|about|devtools|view-source|chrome-untrusted):/i.test(u) ||
-        /^chrome-extension:\/\//i.test(u)) {
-      return "Can't read this page. Extensions can't access chrome:// or Web Store pages.";
-    }
-    if (/^https?:\/\/chrome\.google\.com\/webstore/i.test(u) ||
-        /^https:\/\/chromewebstore\.google\.com/i.test(u)) {
-      return "Can't read this page. Extensions can't access chrome:// or Web Store pages.";
-    }
     if (/^file:\/\//i.test(u)) {
       // Kasus khusus yang paling sering bikin bingung: halaman file:// TIDAK
       // disuntik sampai izinnya dinyalakan manual, dan pesan defaultnya tidak
-      // menyebut itu sama sekali.
+      // menyebut itu sama sekali. Diperiksa SEBELUM isRestrictedUrl, yang
+      // menganggap file:// bisa dibaca justru supaya pesan ini yang muncul.
       return 'Local file detected. Open chrome://extensions, click Details on Rapspect, ' +
              'and turn on "Allow access to file URLs". Cross-origin fetch still fails on ' +
              'file:// pages, so serve the test page over http://localhost instead.';
+    }
+
+    // Definisinya di core, dipakai bersama service worker. Dulu daftar di sini
+    // dan penyaring di worker bisa berbeda; sekarang satu fungsi.
+    if (core.isRestrictedUrl(u)) {
+      return "Can't read this page. Extensions can't access chrome:// or Web Store pages.";
     }
     return null;
   }
@@ -300,6 +299,10 @@
   }
 
   function hasDetails(entry) {
+    // Pembatas navigasi yang URL-nya diringkas WAJIB punya tombol details.
+    // Tanpa itu, query string yang dipotong dari baris tidak bisa dilihat di
+    // mana pun kecuali lewat tooltip - dan tooltip tidak bisa disalin.
+    if (entry.kind === 'navigation') return core.compactUrl(navigationUrl(entry)).trimmed;
     // repeatCount ikut: waktu kejadian terakhir hanya ada di blok detail, jadi
     // baris berpenghitung tanpa tombol details akan menyembunyikannya.
     return entry.kind === 'network' || !!entry.stack || entry.redacted > 0 ||
@@ -775,7 +778,32 @@
   /** Isi kolom pesan. Memakai beberapa <span> supaya method dan status bisa
    *  dibuat tebal tanpa menambah warna baru - aturan "satu warna satu makna"
    *  (README bagian 6) tetap aman. */
+  /** URL lengkap sebuah pembatas navigasi. Entri dari versi sebelumnya belum
+   *  punya field url, jadi diambil dari teksnya sebagai cadangan. */
+  function navigationUrl(entry) {
+    return entry.url || String(entry.text || '').replace(/^Page load:\s*/, '');
+  }
+
   function fillMessage(container, entry) {
+    if (entry.kind === 'navigation') {
+      // Satu baris, selalu. Pembatas halaman seharusnya baris paling tenang di
+      // daftar; URL pencarian Google yang dulu tampil utuh membungkus sampai
+      // lima baris dan mendorong semua log lain ke bawah.
+      //
+      // Lokasinya tetap diwarnai sama seperti URL di stack trace dan baris NET,
+      // supaya "ini sebuah lokasi" berarti hal yang sama di mana pun. Yang
+      // dipotong dari baris - query, fragment, bagian tengah path yang panjang -
+      // tetap utuh di blok detail dan di tooltip.
+      var full = navigationUrl(entry);
+      var compact = core.compactUrl(full);
+      container.appendChild(document.createTextNode('Page load: '));
+      var place = document.createElement('span');
+      place.className = 'rp-syn-url';
+      place.textContent = compact.text;
+      container.appendChild(place);
+      container.title = full;
+      return;
+    }
     if (entry.kind !== 'network') {
       appendHighlighted(container, entry.text);
       return;
