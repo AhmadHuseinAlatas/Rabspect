@@ -51,7 +51,8 @@ jobs:
             tools/selftest-contrast.js \
             tools/selftest-structure.js \
             tools/selftest-highlight.js \
-            tools/selftest-report.js
+            tools/selftest-report.js \
+            tools/selftest-ingest.js
           do
             node --check "$file"
             echo "ok  $file"
@@ -83,3 +84,9 @@ jobs:
       # column, a newline ends the row early, and stack traces contain both.
       - name: Report builders
         run: node tools/selftest-report.js
+
+      # The docs once claimed repeat grouping protected the 500-entry buffer while
+      # the code only changed the display. This suite makes that claim falsifiable:
+      # restore the old push-only buffer and seven of its checks fail.
+      - name: Buffer merging
+        run: node tools/selftest-ingest.js

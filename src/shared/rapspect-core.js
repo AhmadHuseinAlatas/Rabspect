@@ -733,15 +733,167 @@
     return '[' + time + '] ' + tag + ' ' + String(entry.text || '');
   }
 
-  /** Ringkasan isi baris tanpa timestamp, dipakai untuk mengelompokkan
-   *  entri identik yang berulang. Timestamp sengaja TIDAK ikut - kalau ikut,
-   *  tidak akan ada dua entri yang pernah dianggap sama. */
+  // ---------------------------------------------------------------------------
+  // Penggabungan kejadian identik
+  // ---------------------------------------------------------------------------
+
+  /** Identitas KETAT sebuah entri. Satu aturan untuk dua lapis penggabungan:
+   *  buffer di service worker (ingest) dan pengelompokan tampilan di panel
+   *  (groupRows). Kalau aturannya berbeda, hitungan kedua lapis tidak bisa
+   *  dijumlahkan dengan benar.
+   *
+   *  KETAT DENGAN SENGAJA. Versi sebelumnya hanya membandingkan teks pesan, dan
+   *  itu menyembunyikan bukti: pesan yang sama dari dua tempat berbeda di kode
+   *  punya stack trace berbeda, dan penggabungan membuang stack yang kedua.
+   *  Sekarang yang dibandingkan adalah seluruh isi yang bisa dilihat pengguna,
+   *  KECUALI dua hal:
+   *    - waktu: kalau ikut, tidak ada dua entri yang pernah dianggap sama
+   *    - durasi request: wajar berbeda tiap kali. Nilai terbesarnya disimpan
+   *      terpisah oleh mergeRepeat, karena request lambat yang menyimpang justru
+   *      yang dicari QA - rata-rata akan menyembunyikannya
+   *
+   *  JSON.stringify atas array, BUKAN string yang digabung dengan pemisah. Isi
+   *  log dikendalikan halaman, jadi teks yang sengaja mengandung karakter
+   *  pemisah bisa membuat dua entri berbeda punya kunci sama - dan entri kedua
+   *  lenyap ke dalam penghitung entri pertama. JSON meng-escape semuanya, jadi
+   *  tabrakan semacam itu tidak mungkin.
+   *
+   *  Mengembalikan null untuk entri yang TIDAK BOLEH digabung: pembatas
+   *  navigasi. Setiap muat halaman adalah batas urutan kejadian. */
   function entrySignature(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+    if (entry.kind === 'navigation') return null;
+
+    var frame = typeof entry.frameId === 'number' ? entry.frameId : null;
+
     if (entry.kind === 'network') {
-      return 'n|' + entry.method + '|' + entry.status + '|' + (entry.failed ? 'f' : 'o') +
-             '|' + entry.url;
+      var headers = entry.requestHeaders || {};
+      // Urutan key diabaikan: kode yang sama bisa membangun objek header yang
+      // sama dengan urutan berbeda, dan itu tetap request yang sama.
+      var pairs = Object.keys(headers).sort().map(function (k) { return [k, headers[k]]; });
+      return JSON.stringify(['network', entry.method, entry.url, entry.status, !!entry.failed,
+        entry.statusText || '', entry.transport || '', pairs,
+        entry.requestBody == null ? null : String(entry.requestBody),
+        entry.origin || '', frame]);
     }
-    return entry.kind + '|' + entry.level + '|' + String(entry.text || '');
+
+    return JSON.stringify([entry.kind, entry.level, String(entry.text || ''),
+      entry.stack || '', entry.origin || '', frame]);
+  }
+
+  /** Tambahkan kejadian `source` ke `target` yang identik dengannya.
+   *
+   *  Hitungannya DIJUMLAHKAN, bukan ditambah satu. Entri yang sudah x5 di buffer
+   *  lalu dikelompokkan di tampilan dengan entri x3 menjadi x8, bukan x2.
+   *
+   *  `source` tidak pernah diubah. `target` diubah di tempat - pemanggil yang
+   *  tidak boleh mengubah datanya harus menyerahkan salinan (groupRows
+   *  melakukannya). */
+  function mergeRepeat(target, source) {
+    target.repeatCount = (target.repeatCount || 1) + (source.repeatCount || 1);
+
+    var targetLast = typeof target.lastT === 'number' ? target.lastT : target.t;
+    var sourceLast = typeof source.lastT === 'number' ? source.lastT : source.t;
+    target.lastT = Math.max(targetLast, sourceLast);
+
+    if (target.kind === 'network') {
+      var candidates = [
+        typeof target.maxDurationMs === 'number' ? target.maxDurationMs : target.durationMs,
+        typeof source.maxDurationMs === 'number' ? source.maxDurationMs : source.durationMs
+      ].filter(function (n) { return typeof n === 'number' && isFinite(n); });
+      if (candidates.length) target.maxDurationMs = Math.max.apply(null, candidates);
+    }
+    return target;
+  }
+
+  /** Masukkan satu entri ke buffer: gabungkan dengan entri TERAKHIR kalau
+   *  identik, selain itu tambahkan lalu pangkas ke batas ring buffer.
+   *
+   *  INILAH yang melindungi anggaran 500 entri. Halaman yang melempar error yang
+   *  sama dalam loop menghasilkan satu entri berpenghitung, jadi error lama -
+   *  yang sering justru penyebabnya - tidak terdorong keluar.
+   *
+   *  Hanya dibandingkan dengan entri terakhir, tidak dicari ke seluruh buffer.
+   *  Menggabungkan entri yang berjauhan akan memindahkan kejadian ke posisi yang
+   *  salah dalam urutan waktu, dan urutan kejadian adalah inti membaca log.
+   *
+   *  Dipisah dari service worker supaya klaim di atas bisa DIUJI tanpa Chrome.
+   *  Klaim itu pernah ditulis di dokumentasi tanpa kode yang mendukungnya;
+   *  tools/selftest-ingest.js sekarang memeriksanya langsung.
+   *
+   *  @returns {{merged: boolean, entry: object, dropped: number}} */
+  function ingest(list, entry, max) {
+    var last = list.length ? list[list.length - 1] : null;
+    var sig = entrySignature(entry);
+
+    if (last && sig !== null && sig === entrySignature(last)) {
+      mergeRepeat(last, entry);
+      // Entri yang digabung selalu entri terakhir, jadi tidak pernah terpangkas.
+      return { merged: true, entry: last, dropped: 0 };
+    }
+
+    list.push(entry);
+    var limit = max || LIMITS.MAX_ENTRIES;
+    var dropped = 0;
+    if (list.length > limit) {
+      dropped = list.length - limit;
+      list.splice(0, dropped);
+    }
+    return { merged: false, entry: entry, dropped: dropped };
+  }
+
+  /** Kelompokkan entri identik yang BERSEBELAHAN di daftar yang diberikan.
+   *
+   *  Dipakai panel untuk entri yang baru bersebelahan karena tab atau pencarian
+   *  menyembunyikan baris di antaranya. Di buffer mereka tidak berurutan, jadi
+   *  ingest() tidak menyentuhnya.
+   *
+   *  Tidak pernah mengubah `list` maupun isinya: yang digabung salinan dangkal.
+   *  State panel harus tetap mencerminkan apa yang benar-benar terjadi, karena
+   *  itulah yang diekspor.
+   *
+   *  @param {Function} [sigFn] pengganti entrySignature, untuk versi ber-cache */
+  function groupRows(list, sigFn) {
+    var sigOf = sigFn || entrySignature;
+    var out = [];
+    var lastSig = null;
+    for (var i = 0; i < list.length; i++) {
+      var sig = sigOf(list[i]);
+      // null berarti "jangan pernah digabung". Tanpa `sig !== null`, dua pembatas
+      // navigasi berturut-turut akan dianggap identik karena null === null.
+      if (out.length && sig !== null && sig === lastSig) {
+        mergeRepeat(out[out.length - 1], list[i]);
+        continue;
+      }
+      out.push(Object.assign({}, list[i]));
+      lastSig = sig;
+    }
+    return out;
+  }
+
+  /** Jumlah baris yang akan dihasilkan groupRows(list), tanpa membuat salinan.
+   *
+   *  Dipakai hitungan di tab. Aturannya WAJIB identik dengan groupRows: hitungan
+   *  yang tidak cocok dengan isi tab lebih buruk daripada tidak ada hitungan, dan
+   *  versi sebelumnya persis melakukan kesalahan itu - tab Error menulis 8
+   *  sementara isinya satu baris x8. tools/selftest-ingest.js membandingkan
+   *  keduanya pada deret acak. */
+  function countRows(list, sigFn) {
+    var sigOf = sigFn || entrySignature;
+    var rows = 0;
+    var lastSig = null;
+    for (var i = 0; i < list.length; i++) {
+      var sig = sigOf(list[i]);
+      if (rows > 0 && sig !== null && sig === lastSig) continue;
+      rows++;
+      lastSig = sig;
+    }
+    return rows;
+  }
+
+  /** Jumlah kejadian sebenarnya di balik sebuah entri atau baris. */
+  function occurrencesOf(entry) {
+    return entry && entry.repeatCount > 1 ? entry.repeatCount : 1;
   }
 
   // ---------------------------------------------------------------------------
@@ -782,7 +934,14 @@
       lines.push('method   : ' + entry.method);
       lines.push('url      : ' + entry.url);
       lines.push('status   : ' + (entry.failed ? '0 (failed)' : entry.status + ' ' + (entry.statusText || '')));
-      lines.push('duration : ' + (entry.durationMs == null ? '-' : entry.durationMs + ' ms'));
+      lines.push('duration : ' + (entry.durationMs == null ? '-' : entry.durationMs + ' ms') +
+        // Untuk kejadian yang digabung, durasi terbesar ikut disebut. Hanya
+        // menampilkan durasi kejadian pertama akan menyembunyikan request lambat
+        // yang menyimpang - dan justru itu yang dicari saat mengeluh "kadang lambat".
+        (entry.repeatCount > 1 && typeof entry.maxDurationMs === 'number' &&
+         entry.maxDurationMs !== entry.durationMs
+          ? ' (first), ' + entry.maxDurationMs + ' ms (slowest of ' + entry.repeatCount + ')'
+          : ''));
       lines.push('size     : ' + (formatBytes(entry.sizeBytes) || '- (no Content-Length)'));
       lines.push('transport: ' + entry.transport);
       var headers = entry.requestHeaders || {};
@@ -873,12 +1032,17 @@
     return buildReport('text', info, list);
   }
 
+  /** Ringkasan keparahan untuk laporan. Menghitung KEJADIAN, bukan baris: satu
+   *  baris x200 adalah 200 error. Menghitung baris akan membuat laporan menyebut
+   *  "1 error" untuk halaman yang melempar error dalam loop - kebalikan persis
+   *  dari apa yang perlu diketahui pembaca tiket. */
   function summaryOf(list) {
     var counts = { error: 0, warn: 0, failed: 0 };
     for (var i = 0; i < list.length; i++) {
-      if (list[i].level === 'error') counts.error++;
-      if (list[i].level === 'warn') counts.warn++;
-      if (list[i].kind === 'network' && (list[i].failed || list[i].status >= 400)) counts.failed++;
+      var n = occurrencesOf(list[i]);
+      if (list[i].level === 'error') counts.error += n;
+      if (list[i].level === 'warn') counts.warn += n;
+      if (list[i].kind === 'network' && (list[i].failed || list[i].status >= 400)) counts.failed += n;
     }
     return counts;
   }
@@ -1039,6 +1203,11 @@
     tagFor: tagFor,
     entryToLine: entryToLine,
     entrySignature: entrySignature,
+    mergeRepeat: mergeRepeat,
+    ingest: ingest,
+    groupRows: groupRows,
+    countRows: countRows,
+    occurrencesOf: occurrencesOf,
     entryDetail: entryDetail,
     buildReport: buildReport,
     redactHeaders: redactHeaders,

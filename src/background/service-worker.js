@@ -180,13 +180,18 @@ async function addEntries(tabId, rawEntries, frameId) {
   var list = buffers.get(tabId);
   if (!list) { list = []; buffers.set(tabId, list); }
 
-  var accepted = [];
+  var added = [];
+  // Entri LAMA yang hitungannya bertambah. Dikirim sebagai salinan utuh supaya
+  // panel cukup mengganti entri ber-id sama, tanpa perlu tahu aturan
+  // penggabungannya. Map per id: kalau satu batch menambah entri yang sama
+  // berkali-kali, cukup kirim keadaan terakhirnya satu kali.
+  var updated = new Map();
+
   for (var i = 0; i < rawEntries.length; i++) {
     // sanitizeEntry adalah garis pertahanan terhadap halaman yang memalsukan
     // pesan: hanya field yang dikenal lewat, tipe dipaksa, panjang dipotong,
     // dan redaction dijalankan ulang (idempoten).
     var entry = core.sanitizeEntry(rawEntries[i]);
-    entry.id = nextId++;
     if (typeof frameId === 'number') entry.frameId = frameId;
 
     if (entry.kind === 'navigation') {
@@ -196,20 +201,35 @@ async function addEntries(tabId, rawEntries, frameId) {
       if (isDuplicateNav(tabId, entry)) continue;
       lastNav.set(tabId, { url: entry.text, t: entry.t });
     }
-    list.push(entry);
-    accepted.push(entry);
+
+    // Kejadian identik yang berurutan digabung DI SINI, di buffer - bukan hanya
+    // di tampilan. Versi sebelumnya hanya mengelompokkan di panel, sementara
+    // dokumentasinya mengklaim anggaran 500 entri terlindungi. Klaim itu keliru:
+    // 200 error identik tetap mendorong 200 entri lama keluar dari buffer.
+    //
+    // Id hanya diberikan kalau entrinya benar-benar baru. Kejadian yang
+    // digabung tidak memakai id, jadi id tetap urut dan tidak berlubang.
+    var result = core.ingest(list, entry, MAX_ENTRIES);
+    if (result.merged) {
+      if (!result.entry.__new) updated.set(result.entry.id, result.entry);
+      continue;
+    }
+    entry.id = nextId++;
+    // Penanda sementara: entri yang lahir di batch ini lalu digabung lagi di
+    // batch yang SAMA cukup dikirim sebagai entri baru dengan hitungan akhir,
+    // bukan sekali sebagai baru lalu sekali lagi sebagai pembaruan.
+    entry.__new = true;
+    added.push(entry);
   }
 
-  if (!accepted.length) return;
+  for (var a = 0; a < added.length; a++) delete added[a].__new;
 
-  // Ring buffer: buang dari depan begitu melewati batas. `splice` sekali lebih
-  // murah daripada `shift` berulang.
-  if (list.length > MAX_ENTRIES) list.splice(0, list.length - MAX_ENTRIES);
+  if (!added.length && !updated.size) return;
 
   lastTouched.set(tabId, Date.now());
   evictIfNeeded();
   schedulePersist(tabId);
-  pushToPanel(tabId, accepted);
+  pushToPanel(tabId, added, Array.from(updated.values()));
 }
 
 function isDuplicateNav(tabId, entry) {
@@ -220,10 +240,10 @@ function isDuplicateNav(tabId, entry) {
 
 /** Panel yang tertutup adalah keadaan normal, bukan error. `sendMessage` akan
  *  gagal dengan "Receiving end does not exist" dan itu harus ditelan. */
-function pushToPanel(tabId, entries) {
+function pushToPanel(tabId, entries, updated) {
   try {
     chrome.runtime
-      .sendMessage({ type: 'rp:push', tabId: tabId, entries: entries })
+      .sendMessage({ type: 'rp:push', tabId: tabId, entries: entries, updated: updated || [] })
       .catch(function () {});
   } catch (e) {}
 }

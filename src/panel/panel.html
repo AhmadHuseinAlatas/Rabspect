@@ -93,7 +93,13 @@
       </label>
       <label class="rp-check">
         <input id="rp-group" type="checkbox" checked>
-        <span title="Collapse consecutive identical entries into one row with a count">Group repeats</span>
+        <!-- Tooltip ini harus jujur tentang dua lapis penggabungan. Kejadian
+             identik yang berurutan SELALU digabung saat ditangkap, untuk
+             melindungi ring buffer, dan itu tidak bisa dibatalkan dari sini.
+             Kotak centang ini hanya mengatur lapis kedua. Tanpa penjelasan ini,
+             orang akan mematikannya, tetap melihat x8, lalu menyimpulkan
+             tombolnya rusak. -->
+        <span title="Identical events in a row are always merged as they are captured, so one error loop cannot push older entries out of the 500-entry buffer. This option additionally collapses repeats that only become adjacent when a tab or search hides the rows between them.">Group repeats</span>
       </label>
     </div>
 

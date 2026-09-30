@@ -108,7 +108,15 @@
     prevCounts: {},
     // Jumlah entri baru yang tiba sementara pengguna sedang membaca bagian atas
     // daftar. Dipakai tombol "jump to latest".
-    pendingBelow: 0
+    pendingBelow: 0,
+    // Id entri LAMA yang hitungannya bertambah sejak render terakhir. Entri yang
+    // digabung di buffer tidak mendapat id baru, jadi tanpa ini kejadian ulangan
+    // di bawah lipatan tidak memunculkan tombol "jump to latest" sama sekali.
+    bumped: new Set(),
+    // Baris yang terakhir dirender, per id. Tombol copy harus menyalin baris
+    // SEPERTI YANG TERLIHAT - termasuk hitungan hasil pengelompokan tampilan -
+    // bukan entri buffer mentah di baliknya.
+    rowsById: new Map()
   };
 
   /** Cache teks pencarian per id entri.
@@ -133,6 +141,40 @@
     text = text.toLowerCase();
     searchCache.set(entry.id, text);
     return text;
+  }
+
+  /** Cache tanda tangan identitas per id, dengan alasan yang sama seperti cache
+   *  pencarian: countsByScope memanggilnya untuk ketujuh lensa, dan tanda tangan
+   *  sekarang memakai JSON.stringify atas seluruh isi entri.
+   *
+   *  Aman walaupun entri bisa DIGANTI oleh pembaruan dari service worker:
+   *  entri hanya pernah digabung dengan kejadian yang tanda tangannya identik,
+   *  jadi tanda tangannya tidak pernah berubah. Yang berubah hanya hitungan,
+   *  waktu terakhir, dan durasi terbesar - tiga hal yang sengaja dikecualikan
+   *  dari tanda tangan. */
+  var signatureCache = new Map();
+
+  function signatureFor(entry) {
+    if (signatureCache.has(entry.id)) return signatureCache.get(entry.id);
+    var sig = core.entrySignature(entry);
+    signatureCache.set(entry.id, sig);
+    return sig;
+  }
+
+  /** Lupakan entri dari semua cache sekaligus. Satu fungsi, supaya cache yang
+   *  ditambahkan nanti tidak terlupa dibersihkan di salah satu jalur. */
+  function forgetEntries(list) {
+    for (var i = 0; i < list.length; i++) {
+      searchCache.delete(list[i].id);
+      signatureCache.delete(list[i].id);
+    }
+  }
+
+  function forgetAllEntries() {
+    searchCache.clear();
+    signatureCache.clear();
+    state.rowsById = new Map();
+    state.bumped = new Set();
   }
 
   // ---------------------------------------------------------------------------
@@ -216,9 +258,12 @@
     var lines = [core.entryDetail(entry)];
     if (entry.repeatCount > 1) {
       lines.push('');
-      lines.push('repeated     : ' + entry.repeatCount + ' times, first at ' +
+      lines.push('repeated     : ' + entry.repeatCount + ' times in a row, first at ' +
                  formatTime(entry.t) +
                  (entry.lastT ? ', last at ' + formatTime(entry.lastT) : ''));
+      // Harga penggabungan disebut terang-terangan: waktu tiap kejadian di
+      // tengah deret tidak disimpan. Yang disimpan hanya pertama dan terakhir.
+      lines.push('               individual times between first and last are not kept');
     }
     if (entry.origin) lines.push('frame origin : ' + entry.origin);
     if (entry.kind === 'network') {
@@ -231,43 +276,34 @@
   // Pengelompokan entri identik berulang
   // ---------------------------------------------------------------------------
 
-  /** Gabungkan entri identik yang BERURUTAN menjadi satu baris berpenghitung.
+  /** Pengelompokan TAMPILAN: satu dari dua lapis penggabungan.
    *
-   *  Hanya yang berurutan, dan itu penting. Mengelompokkan entri yang berjauhan
-   *  akan mengacak urutan waktu, dan urutan kejadian justru inti dari membaca log
-   *  saat melacak bug.
+   *  KOREKSI atas versi sebelumnya. Komentar di sini dulu mengklaim fungsi ini
+   *  "melindungi anggaran 500 entri". Itu keliru: fungsi ini hanya mengubah
+   *  tampilan, sementara service worker tetap menyimpan setiap kejadian. Yang
+   *  benar-benar melindungi buffer sekarang adalah core.ingest() di service
+   *  worker, yang menggabungkan kejadian identik berurutan SEBELUM disimpan.
    *
-   *  Kenapa berguna: halaman yang melempar error yang sama 200 kali menghabiskan
-   *  40% ring buffer untuk satu informasi. Pengelompokan melindungi anggaran 500
-   *  entri, bukan cuma memperindah tampilan.
+   *  Yang tersisa untuk lapis ini: entri identik yang baru BERSEBELAHAN karena
+   *  tab atau pencarian menyembunyikan baris di antaranya. Di buffer mereka
+   *  tidak berurutan, jadi ingest() sengaja tidak menyentuhnya.
    *
-   *  Entri asli TIDAK pernah disentuh - yang dikembalikan salinan dangkal. State
-   *  harus tetap mencerminkan apa yang benar-benar terjadi, karena itulah yang
-   *  diekspor. */
+   *  Dua perbaikan lain ikut di sini:
+   *  - identitasnya kini ketat. Dulu hanya teks pesan yang dibandingkan, jadi
+   *    pesan sama dari dua tempat berbeda di kode digabung dan stack trace yang
+   *    kedua hilang dari tampilan
+   *  - hitungan DIJUMLAHKAN. Entri buffer x5 dan x3 menjadi satu baris x8,
+   *    bukan x2 */
   function groupRepeats(list) {
     if (!state.group) return list;
-
-    var out = [];
-    var lastSig = null;
-    for (var i = 0; i < list.length; i++) {
-      var sig = core.entrySignature(list[i]);
-      if (out.length && sig === lastSig) {
-        var prev = out[out.length - 1];
-        prev.repeatCount++;
-        prev.lastT = list[i].t;
-        continue;
-      }
-      var copy = Object.assign({}, list[i]);
-      copy.repeatCount = 1;
-      out.push(copy);
-      lastSig = sig;
-    }
-    return out;
+    return core.groupRows(list, signatureFor);
   }
 
   function hasDetails(entry) {
+    // repeatCount ikut: waktu kejadian terakhir hanya ada di blok detail, jadi
+    // baris berpenghitung tanpa tombol details akan menyembunyikannya.
     return entry.kind === 'network' || !!entry.stack || entry.redacted > 0 ||
-           String(entry.text || '').length > 160;
+           entry.repeatCount > 1 || String(entry.text || '').length > 160;
   }
 
   // ---------------------------------------------------------------------------
@@ -349,19 +385,30 @@
     return matchesScope(entry, state.scope) && passesCommon(entry);
   }
 
-  /** Hitung isi setiap tab sekaligus dalam satu lintasan per tab.
-   *  500 entri kali 7 lensa adalah 3500 pemeriksaan - tidak terasa, dan jauh
-   *  lebih sederhana dibaca daripada menghitung bertahap sambil menjaga
-   *  konsistensi. */
+  /** Hitung isi setiap tab: jumlah BARIS yang akan terlihat saat tab itu dibuka.
+   *
+   *  KOREKSI atas versi sebelumnya, yang menghitung entri SEBELUM pengelompokan.
+   *  Dengan "Group repeats" menyala - dan itu bawaannya - tab Error bisa menulis
+   *  8 sementara isinya satu baris x8. Itu melanggar jaminan V-81: angka tab
+   *  selalu sama dengan jumlah baris yang tampil.
+   *
+   *  Penghitungnya core.countRows(), yang aturannya diuji identik dengan
+   *  core.groupRows() di tools/selftest-ingest.js. Menulis ulang logika yang sama
+   *  di sini akan membuat keduanya pelan-pelan berbeda.
+   *
+   *  500 entri kali 7 lensa tetap tidak terasa: tanda tangan dan teks pencarian
+   *  sama-sama di-cache per id. */
   function countsByScope() {
     var out = {};
     for (var s = 0; s < SCOPES.length; s++) {
       var scope = SCOPES[s];
-      var n = 0;
+      var matched = [];
       for (var i = 0; i < state.entries.length; i++) {
-        if (matchesScope(state.entries[i], scope) && passesCommon(state.entries[i])) n++;
+        if (matchesScope(state.entries[i], scope) && passesCommon(state.entries[i])) {
+          matched.push(state.entries[i]);
+        }
       }
-      out[scope] = n;
+      out[scope] = state.group ? core.countRows(matched, signatureFor) : matched.length;
     }
     return out;
   }
@@ -601,10 +648,20 @@
 
     var frag = document.createDocumentFragment();
     var arrived = 0;
+    var occurrences = 0;
+    var rowsById = new Map();
     for (var j = 0; j < rows.length; j++) {
-      if (rows[j].id > animateAbove) arrived++;
+      // Baris dianggap "ada kabar baru" kalau entrinya baru, ATAU entri lamanya
+      // bertambah hitungan. Yang kedua tidak mendapat animasi kedatangan -
+      // barisnya sudah ada, dan menggerakkannya lagi akan membuat daftar
+      // berkedip selama halaman berada di dalam loop error.
+      if (rows[j].id > animateAbove || state.bumped.has(rows[j].id)) arrived++;
+      occurrences += core.occurrencesOf(rows[j]);
+      rowsById.set(rows[j].id, rows[j]);
       frag.appendChild(buildEntryNode(rows[j], animateAbove));
     }
+    state.rowsById = rowsById;
+    state.bumped = new Set();
 
     // Satu penggantian isi, bukan menambah node satu per satu ke DOM hidup.
     el.list.textContent = '';
@@ -621,12 +678,13 @@
       showJump(state.pendingBelow);
     }
 
-    // Kalau pengelompokan benar-benar menggabungkan sesuatu, jumlah baris dan
-    // jumlah entri berbeda, dan keduanya perlu disebut - kalau tidak, hitungan
-    // di footer terlihat tidak cocok dengan apa yang terlihat di layar.
-    var shown = rows.length === filtered.length
-      ? filtered.length + ' shown'
-      : rows.length + ' rows (' + filtered.length + ' entries)';
+    // Dua angka, dua pertanyaan berbeda. "shown" adalah jumlah baris di layar;
+    // "events" adalah jumlah kejadian sebenarnya di balik baris-baris itu, dan
+    // hanya disebut kalau berbeda. "captured" adalah slot ring buffer yang
+    // terpakai - satu kejadian berulang memakai SATU slot, dan justru itu yang
+    // membuat angka events bisa melebihi angka captured.
+    var shown = rows.length + ' shown' +
+      (occurrences !== rows.length ? ' (' + occurrences + ' events)' : '');
     el.count.textContent = shown + ' / ' + state.entries.length +
                            ' captured (buffer ' + state.max + ')';
   }
@@ -788,7 +846,7 @@
     //  - penanda primed, supaya render pertama untuk tab baru tidak
     //    menganimasikan ratusan baris sekaligus hanya karena id-nya lebih tinggi
     //    daripada yang pernah dirender di tab sebelumnya
-    searchCache.clear();
+    forgetAllEntries();
     state.primed = false;
     state.maxRenderedId = 0;
     hideJump();
@@ -801,6 +859,10 @@
     try {
       tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     } catch (e) { tabs = []; }
+    // Isi cache milik tab sebelumnya tidak boleh terbawa ke tab yang baru.
+    // Id entri unik secara global, jadi tidak akan salah cocok, tapi Map-nya akan
+    // terus tumbuh selama pengguna berpindah tab.
+    forgetAllEntries();
 
     var tab = tabs && tabs[0];
     if (!tab) {
@@ -824,28 +886,63 @@
     await requestSnapshot();
   }
 
-  // Dorongan entri baru dari service worker.
+  /** Cari posisi entri berdasarkan id, mulai dari belakang. Pembaruan dari
+   *  service worker hampir selalu mengenai entri TERAKHIR - hanya entri itu yang
+   *  bisa digabung - jadi pencarian dari belakang selesai di langkah pertama. */
+  function indexOfEntryId(id) {
+    for (var i = state.entries.length - 1; i >= 0; i--) {
+      if (state.entries[i].id === id) return i;
+    }
+    return -1;
+  }
+
+  // Dorongan dari service worker: entri baru, dan entri lama yang hitungannya
+  // bertambah karena kejadian identik digabung di buffer.
   chrome.runtime.onMessage.addListener(function (msg) {
     if (!msg || msg.type !== 'rp:push') return;
     if (msg.tabId !== state.tabId) return;           // log dari tab lain, abaikan
-    if (!Array.isArray(msg.entries)) return;
 
-    for (var i = 0; i < msg.entries.length; i++) state.entries.push(msg.entries[i]);
+    var fresh = Array.isArray(msg.entries) ? msg.entries : [];
+    var changed = Array.isArray(msg.updated) ? msg.updated : [];
+    if (!fresh.length && !changed.length) return;
+
+    // Jumlah KEJADIAN yang baru tiba, bukan jumlah pesan. Dipakai penanda
+    // PAUSED supaya "+N" tetap jujur walaupun kejadiannya digabung.
+    var arrivedEvents = 0;
+
+    for (var u = 0; u < changed.length; u++) {
+      var index = indexOfEntryId(changed[u].id);
+      // -1 berarti entrinya sudah terpangkas dari salinan panel. Wajar, dan
+      // bukan alasan untuk menambahkannya kembali di posisi yang salah.
+      if (index === -1) continue;
+      arrivedEvents += Math.max(0,
+        core.occurrencesOf(changed[u]) - core.occurrencesOf(state.entries[index]));
+      // Diganti utuh, bukan ditambal field per field, supaya panel tidak perlu
+      // tahu aturan penggabungan apa pun. Cache tetap sah: tanda tangan dan teks
+      // pencarian entri yang digabung tidak pernah berubah.
+      state.entries[index] = changed[u];
+      state.bumped.add(changed[u].id);
+    }
+
+    for (var i = 0; i < fresh.length; i++) {
+      state.entries.push(fresh[i]);
+      arrivedEvents += core.occurrencesOf(fresh[i]);
+    }
+
     // Panel menegakkan batas yang sama dengan service worker, supaya keduanya
     // tidak pernah berbeda isi.
     if (state.entries.length > state.max) {
-      var dropped = state.entries.splice(0, state.entries.length - state.max);
-      // Cache pencarian dibersihkan bersama entrinya. Tanpa ini, id terus
-      // bertambah sepanjang sesi dan Map-nya tumbuh tanpa batas untuk entri yang
-      // sudah tidak pernah dilihat lagi.
-      for (var d = 0; d < dropped.length; d++) searchCache.delete(dropped[d].id);
+      // Cache dibersihkan bersama entrinya. Tanpa ini, id terus bertambah
+      // sepanjang sesi dan Map-nya tumbuh tanpa batas untuk entri yang sudah
+      // tidak pernah dilihat lagi.
+      forgetEntries(state.entries.splice(0, state.entries.length - state.max));
     }
 
     // Saat dibekukan, entri tetap MASUK tapi tidak dirender. Hitungan tab juga
     // ikut beku dengan sendirinya, karena renderCounts() dipanggil dari render().
     // Angka yang bergerak sementara daftarnya diam justru membingungkan.
     if (state.paused) {
-      state.pausedCount += msg.entries.length;
+      state.pausedCount += arrivedEvents;
       updatePausedBadge();
       return;
     }
@@ -872,7 +969,7 @@
 
   async function doClear() {
     state.expanded = {};
-    searchCache.clear();
+    forgetAllEntries();
     hideJump();
     await ask({ type: 'rp:clear', tabId: state.tabId });
     state.entries = [];
@@ -1037,15 +1134,22 @@
   }
 
   /** Salin satu baris saja, beserta detailnya kalau ada.
-   *  Ini bentuk yang paling sering ditempelkan ke komentar tiket. */
+   *  Ini bentuk yang paling sering ditempelkan ke komentar tiket.
+   *
+   *  Yang disalin adalah baris SEPERTI YANG TERLIHAT. Versi sebelumnya mencari
+   *  entri buffer mentah, sehingga baris hasil pengelompokan tampilan x8 tersalin
+   *  sebagai entri pertamanya saja dengan hitungannya sendiri - teks di clipboard
+   *  berbeda dari yang dilihat pengguna saat mengklik. */
   async function copySingle(id) {
-    var entry = null;
-    for (var i = 0; i < state.entries.length; i++) {
-      if (state.entries[i].id === id) { entry = state.entries[i]; break; }
+    var entry = state.rowsById.get(id);
+    if (!entry) {
+      var index = indexOfEntryId(id);
+      if (index !== -1) entry = state.entries[index];
     }
     if (!entry) return;
 
     var text = entryToLine(entry);
+    if (entry.repeatCount > 1) text += '  (x' + entry.repeatCount + ')';
     if (hasDetails(entry)) text += '\n' + detailsText(entry);
     await writeClipboard(text);
   }
