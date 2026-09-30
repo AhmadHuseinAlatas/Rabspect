@@ -91,13 +91,37 @@
         <input id="rp-failed" type="checkbox">
         <span>Failed only (status &gt;= 400)</span>
       </label>
+      <label class="rp-check">
+        <input id="rp-group" type="checkbox" checked>
+        <span title="Collapse consecutive identical entries into one row with a count">Group repeats</span>
+      </label>
     </div>
 
     <div class="rp-row-tools rp-actions">
+      <!-- Pause membekukan TAMPILAN, bukan penangkapan. Entri yang masuk tetap
+           tersimpan; hanya render yang ditahan. Bukti yang tidak tertangkap
+           tidak bisa dikembalikan, sedangkan tampilan yang tertahan bisa. -->
+      <button id="rp-pause"  class="rp-btn" type="button" aria-pressed="false">Pause</button>
       <button id="rp-clear"  class="rp-btn" type="button">Clear</button>
       <button id="rp-copy"   class="rp-btn" type="button">Copy as text</button>
-      <button id="rp-export" class="rp-btn rp-btn--primary" type="button">Export JSON</button>
+      <button id="rp-export" class="rp-btn rp-btn--primary" type="button">Export</button>
     </div>
+
+    <!-- Redaction tambahan. Sengaja ditaruh di balik <details> supaya toolbar
+         tidak penuh: ini disetel sekali lalu dilupakan. -->
+    <details class="rp-more">
+      <summary>Extra redaction</summary>
+      <label class="rp-field">
+        <span class="rp-sr">Additional field names to redact</span>
+        <input id="rp-extra" class="rp-input" type="text" autocomplete="off" spellcheck="false"
+               placeholder="X-Internal-Session, sessionId">
+      </label>
+      <p class="rp-more__hint">
+        Comma separated, minimum three characters each. These are
+        <strong>added</strong> to the built-in list, which can never be switched
+        off. Applied in the service worker before anything enters the buffer.
+      </p>
+    </details>
 
   </div>
 
@@ -161,6 +185,10 @@
 
   <footer class="rp-status">
     <span id="rp-count" class="rp-status__count" aria-live="polite">0 shown / 0 captured</span>
+    <!-- Penanda paused harus mencolok. Panel yang dibekukan dan panel yang rusak
+         terlihat sama persis dari luar, dan itu cara tercepat membuang waktu
+         seseorang. -->
+    <span id="rp-paused" class="rp-status__paused" hidden>PAUSED</span>
     <span id="rp-redaction" class="rp-status__redaction" tabindex="0">Redaction ON</span>
   </footer>
 
@@ -179,8 +207,20 @@
         <li id="rp-modal-fields">Redacted fields: &mdash;</li>
         <li>Response bodies are never captured.</li>
       </ul>
+
+      <label class="rp-modal__field">
+        <span>Format</span>
+        <select id="rp-format" class="rp-input">
+          <option value="markdown">Markdown &mdash; GitHub, GitLab, Azure DevOps</option>
+          <option value="jira">Jira wiki markup</option>
+          <option value="json">JSON &mdash; full data, for archiving</option>
+          <option value="text">Plain text</option>
+        </select>
+      </label>
+
       <div class="rp-modal__actions">
         <button id="rp-modal-cancel" class="rp-btn" type="button">Cancel</button>
+        <button id="rp-modal-copy" class="rp-btn" type="button">Copy</button>
         <button id="rp-modal-confirm" class="rp-btn rp-btn--primary" type="button">Download</button>
       </div>
     </div>

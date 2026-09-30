@@ -4,11 +4,15 @@
 # node_modules atau folder dist yang perlu diabaikan. Yang ada di bawah adalah
 # berkas yang muncul dari PEMAKAIAN alat ini, plus sampah bawaan sistem.
 
-# Hasil "Export JSON" dari panel. Nama filenya dibentuk oleh panel.js sebagai
-# rapspect-<host>-<tanggal>-<waktu>.json. Ini yang paling penting diabaikan:
-# isinya log dari halaman yang diuji, dan walaupun redaction selalu aktif, file
-# itu tetap bukan sesuatu yang layak ikut ter-commit ke repo publik.
+# Hasil ekspor dari panel. Nama filenya dibentuk oleh panel.js sebagai
+# rapspect-<host>-<tanggal>-<waktu>.<ext>, dan ekstensinya kini bisa json, md,
+# atau txt sejak ekspor Markdown dan Jira ada. Pola tanpa ekstensi spesifik
+# dipakai supaya format baru otomatis ikut terabaikan - ini yang paling penting
+# di file ini: isinya log dari halaman yang diuji, dan walaupun redaction selalu
+# aktif, file itu tetap bukan sesuatu yang layak ter-commit ke repo publik.
 rapspect-*.json
+rapspect-*.md
+rapspect-*.txt
 
 # Log sementara
 *.log

@@ -57,9 +57,42 @@ var loadPromise = null;
  *  masing-masing akan memulai pembacaan storage sendiri dan yang terakhir
  *  menang - entri dari pembacaan lain hilang. Satu promise bersama membuat
  *  semuanya menunggu pembacaan yang sama. */
+/** Muat nama field redaction tambahan yang ditentukan pengguna.
+ *
+ *  Diterapkan DI SINI, di service worker, bukan di titik capture. Alasannya
+ *  praktis: kode capture berjalan di MAIN world yang tidak punya akses
+ *  `chrome.*` sama sekali, jadi tidak bisa membaca storage. Menyalurkan
+ *  konfigurasi ke sana berarti menambah kanal pesan baru menuju halaman.
+ *
+ *  Menerapkannya di sini tetap benar untuk tujuannya: lapisan inilah yang
+ *  menentukan apa yang MASUK buffer, jadi tidak ada nilai bernama sensitif yang
+ *  pernah tersimpan atau tertampil. Bedanya yang harus dicatat jujur: nilai itu
+ *  masih melintasi jembatan di dalam halaman sebelum disensor - dan itu data
+ *  milik halaman itu sendiri, yang sudah dia pegang sejak awal. */
+async function loadExtraRedactionFields() {
+  try {
+    var stored = await chrome.storage.local.get('rp:extraRedact');
+    var list = (stored && Array.isArray(stored['rp:extraRedact'])) ? stored['rp:extraRedact'] : [];
+    var applied = core.setExtraFields(list);
+    if (applied.length) {
+      console.log('[Rapspect] field redaction tambahan aktif:', applied.join(', '));
+    }
+  } catch (e) {
+    console.warn('[Rapspect] gagal memuat field redaction tambahan:', e);
+  }
+}
+
+// Perubahan berlaku segera, tanpa menunggu worker restart. storage.onChanged
+// juga membangunkan worker yang sedang tidur, jadi tidak ada celah di mana
+// setelan sudah tersimpan tapi belum berlaku.
+chrome.storage.onChanged.addListener(function (changes, area) {
+  if (area === 'local' && changes['rp:extraRedact']) loadExtraRedactionFields();
+});
+
 function ensureLoaded() {
   if (loadPromise) return loadPromise;
   loadPromise = (async function () {
+    await loadExtraRedactionFields();
     try {
       var all = await chrome.storage.session.get(null);
       var keys = Object.keys(all || {});

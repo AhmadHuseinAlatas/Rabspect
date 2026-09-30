@@ -463,6 +463,49 @@ body {
 
 .rp-actions { justify-content: flex-start; }
 
+/* Tombol Pause saat aktif. Memakai warna warn karena maknanya memang peringatan:
+   kamu sedang tidak melihat keadaan terkini. Satu warna, satu makna tetap utuh. */
+.rp-btn[aria-pressed="true"] {
+  border-color: var(--rp-warn);
+  color: var(--rp-warn);
+  font-weight: 700;
+}
+
+/* Blok pengaturan yang jarang dibuka. */
+.rp-more {
+  font-size: 12px;
+  color: var(--rp-text-muted);
+}
+
+.rp-more > summary {
+  cursor: pointer;
+  padding: 2px 0;
+  color: var(--rp-text-muted);
+}
+
+.rp-more > summary:hover { color: var(--rp-text); }
+
+.rp-more__hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--rp-text-muted);
+}
+
+.rp-more__hint strong { color: var(--rp-text); }
+
+/* Pilihan format di dialog export. */
+.rp-modal__field {
+  display: block;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--rp-text);
+}
+
+.rp-modal__field > span {
+  display: block;
+  margin-bottom: 4px;
+}
+
 /* ---------- Area data: mulai dari sini harus membosankan ---------- */
 .rp-stage {
   position: relative;
@@ -620,6 +663,16 @@ body {
 
 .rp-toggle:hover { color: var(--rp-text); }
 
+/* Tombol per baris dikumpulkan dalam satu wadah flex, bukan diletakkan langsung
+   sebagai anak grid. Kalau keduanya jadi anak grid di kolom yang sama, grid
+   menaruhnya di dua baris berbeda dan satu baris log memakan tinggi tiga baris. */
+.rp-rowactions {
+  grid-column: 3;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .rp-details {
   margin: 0;
   padding: 4px 8px 8px 8px;
@@ -765,6 +818,30 @@ body {
   border-radius: 999px;
   color: var(--rp-success);
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.rp-status__paused {
+  padding: 1px 6px;
+  border: 1px solid var(--rp-warn);
+  border-radius: 999px;
+  color: var(--rp-warn);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rp-status__paused[hidden] { display: none; }
+
+/* Penghitung pengulangan pada baris yang dikelompokkan. Bentuk pil, bukan warna
+   baru: angka ini metadata, bukan tingkat keparahan. */
+.rp-repeat {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--rp-text-muted);
+  border-radius: 999px;
+  color: var(--rp-text-muted);
+  font-family: var(--rp-font-ui);
+  font-size: 10px;
   white-space: nowrap;
 }
 

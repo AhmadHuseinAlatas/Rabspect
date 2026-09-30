@@ -40,6 +40,12 @@
     clear:        document.getElementById('rp-clear'),
     copy:         document.getElementById('rp-copy'),
     exportBtn:    document.getElementById('rp-export'),
+    pause:        document.getElementById('rp-pause'),
+    pausedBadge:  document.getElementById('rp-paused'),
+    group:        document.getElementById('rp-group'),
+    extra:        document.getElementById('rp-extra'),
+    format:       document.getElementById('rp-format'),
+    modalCopy:    document.getElementById('rp-modal-copy'),
     list:         document.getElementById('rp-list'),
     empty:        document.getElementById('rp-empty'),
     nomatch:      document.getElementById('rp-nomatch'),
@@ -83,6 +89,12 @@
     max: core.LIMITS.MAX_ENTRIES,
     scope: 'all',
     failedOnly: false,
+    group: true,
+    paused: false,
+    // Entri yang masuk selagi dibekukan. Dihitung supaya penanda PAUSED bisa
+    // menyebut angkanya - "dibekukan" tanpa angka tidak memberi tahu apakah
+    // halaman masih hidup.
+    pausedCount: 0,
     query: '',
     expanded: {},            // entry.id -> true
     blockedReason: null,
@@ -186,79 +198,71 @@
   // Format
   // ---------------------------------------------------------------------------
 
-  function pad(n, width) {
-    var s = String(n);
-    while (s.length < width) s = '0' + s;
-    return s;
-  }
+  // Semua pemformat pindah ke rapspect-core.js: logika string murni yang di
+  // panel.js tidak bisa diuji tanpa browser. Alias pendek di bawah hanya supaya
+  // pemanggilnya tetap terbaca.
+  var formatTime = core.formatTime;
+  var formatBytes = core.formatBytes;
+  var tagFor = core.tagFor;
+  var entryToLine = core.entryToLine;
 
-  function formatTime(ts) {
-    var d = new Date(ts);
-    return pad(d.getHours(), 2) + ':' + pad(d.getMinutes(), 2) + ':' +
-           pad(d.getSeconds(), 2) + '.' + pad(d.getMilliseconds(), 3);
-  }
-
-  function formatBytes(n) {
-    if (n == null) return null;
-    if (n < 1024) return n + ' B';
-    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' kB';
-    return (n / (1024 * 1024)).toFixed(1) + ' MB';
-  }
-
-  function tagFor(entry) {
-    if (entry.kind === 'network') return 'NET';
-    if (entry.kind === 'navigation') return 'PAGE';
-    if (entry.kind === 'error') return 'ERROR';
-    return String(entry.level || 'log').toUpperCase();
-  }
-
-  /** Satu baris teks datar untuk pencarian, Copy as text, dan pembanding. */
-  function entryToLine(entry) {
-    var time = formatTime(entry.t);
-    var tag = tagFor(entry);
-    if (entry.kind === 'network') {
-      var status = entry.failed ? 'FAILED' : String(entry.status);
-      var bits = [entry.method, status];
-      if (entry.durationMs != null) bits.push(entry.durationMs + ' ms');
-      var size = formatBytes(entry.sizeBytes);
-      if (size) bits.push(size);
-      bits.push(entry.url);
-      if (entry.failed && entry.statusText) bits.push('(' + entry.statusText + ')');
-      return '[' + time + '] ' + tag + ' ' + bits.join(' ');
-    }
-    return '[' + time + '] ' + tag + ' ' + String(entry.text || '');
-  }
-
-  /** Isi blok detail. Sengaja teks polos di dalam <pre>: isinya sering
-   *  di-copy-paste utuh ke bug report. */
+  /** Isi blok detail di panel. Sengaja teks polos di dalam <pre>: isinya sering
+   *  di-copy-paste utuh ke bug report.
+   *
+   *  Dibangun di atas core.entryDetail() dan hanya menambahkan keterangan yang
+   *  khusus untuk tampilan panel - laporan Markdown dan Jira tidak
+   *  membutuhkannya. */
   function detailsText(entry) {
-    var lines = [];
-    if (entry.kind === 'network') {
-      lines.push('method       : ' + entry.method);
-      lines.push('url          : ' + entry.url);
-      lines.push('status       : ' + (entry.failed ? '0 (failed)' : entry.status + ' ' + (entry.statusText || '')));
-      lines.push('duration     : ' + (entry.durationMs == null ? '-' : entry.durationMs + ' ms'));
-      lines.push('size         : ' + (formatBytes(entry.sizeBytes) || '- (no Content-Length header)'));
-      lines.push('transport    : ' + entry.transport);
-      if (entry.failed && entry.statusText) lines.push('failure      : ' + entry.statusText);
-      var headers = entry.requestHeaders || {};
-      var names = Object.keys(headers);
-      if (names.length) {
-        lines.push('request headers:');
-        for (var i = 0; i < names.length; i++) lines.push('  ' + names[i] + ': ' + headers[names[i]]);
-      }
-      if (entry.requestBody) {
-        lines.push('request body :');
-        lines.push('  ' + String(entry.requestBody).split('\n').join('\n  '));
-      }
-      lines.push('note         : response body is never captured (see README section 4)');
-    } else {
-      lines.push(String(entry.text || ''));
-      if (entry.stack) { lines.push(''); lines.push(entry.stack); }
+    var lines = [core.entryDetail(entry)];
+    if (entry.repeatCount > 1) {
+      lines.push('');
+      lines.push('repeated     : ' + entry.repeatCount + ' times, first at ' +
+                 formatTime(entry.t) +
+                 (entry.lastT ? ', last at ' + formatTime(entry.lastT) : ''));
     }
     if (entry.origin) lines.push('frame origin : ' + entry.origin);
-    if (entry.redacted > 0) lines.push('redacted     : ' + entry.redacted + ' value(s) replaced with ' + core.REDACTED_MARK);
+    if (entry.kind === 'network') {
+      lines.push('note         : response body is never captured (README section 4)');
+    }
     return lines.join('\n');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pengelompokan entri identik berulang
+  // ---------------------------------------------------------------------------
+
+  /** Gabungkan entri identik yang BERURUTAN menjadi satu baris berpenghitung.
+   *
+   *  Hanya yang berurutan, dan itu penting. Mengelompokkan entri yang berjauhan
+   *  akan mengacak urutan waktu, dan urutan kejadian justru inti dari membaca log
+   *  saat melacak bug.
+   *
+   *  Kenapa berguna: halaman yang melempar error yang sama 200 kali menghabiskan
+   *  40% ring buffer untuk satu informasi. Pengelompokan melindungi anggaran 500
+   *  entri, bukan cuma memperindah tampilan.
+   *
+   *  Entri asli TIDAK pernah disentuh - yang dikembalikan salinan dangkal. State
+   *  harus tetap mencerminkan apa yang benar-benar terjadi, karena itulah yang
+   *  diekspor. */
+  function groupRepeats(list) {
+    if (!state.group) return list;
+
+    var out = [];
+    var lastSig = null;
+    for (var i = 0; i < list.length; i++) {
+      var sig = core.entrySignature(list[i]);
+      if (out.length && sig === lastSig) {
+        var prev = out[out.length - 1];
+        prev.repeatCount++;
+        prev.lastT = list[i].t;
+        continue;
+      }
+      var copy = Object.assign({}, list[i]);
+      copy.repeatCount = 1;
+      out.push(copy);
+      lastSig = sig;
+    }
+    return out;
   }
 
   function hasDetails(entry) {
@@ -393,6 +397,7 @@
     el.tabs.forEach(function (tab) {
       tab.setAttribute('aria-selected', tab.getAttribute('data-scope') === scope ? 'true' : 'false');
     });
+    savePrefs();
     render();
   }
 
@@ -592,11 +597,13 @@
     // dibaca.
     var before = captureScroll();
 
+    var rows = groupRepeats(filtered);
+
     var frag = document.createDocumentFragment();
     var arrived = 0;
-    for (var j = 0; j < filtered.length; j++) {
-      if (filtered[j].id > animateAbove) arrived++;
-      frag.appendChild(buildEntryNode(filtered[j], animateAbove));
+    for (var j = 0; j < rows.length; j++) {
+      if (rows[j].id > animateAbove) arrived++;
+      frag.appendChild(buildEntryNode(rows[j], animateAbove));
     }
 
     // Satu penggantian isi, bukan menambah node satu per satu ke DOM hidup.
@@ -614,7 +621,13 @@
       showJump(state.pendingBelow);
     }
 
-    el.count.textContent = filtered.length + ' shown / ' + state.entries.length +
+    // Kalau pengelompokan benar-benar menggabungkan sesuatu, jumlah baris dan
+    // jumlah entri berbeda, dan keduanya perlu disebut - kalau tidak, hitungan
+    // di footer terlihat tidak cocok dengan apa yang terlihat di layar.
+    var shown = rows.length === filtered.length
+      ? filtered.length + ' shown'
+      : rows.length + ' rows (' + filtered.length + ' entries)';
+    el.count.textContent = shown + ' / ' + state.entries.length +
                            ' captured (buffer ' + state.max + ')';
   }
 
@@ -646,10 +659,35 @@
     msg.className = 'rp-row__msg';
     fillMessage(msg, entry);
 
+    // Penghitung pengulangan. Waktu yang ditampilkan adalah kemunculan PERTAMA;
+    // yang terakhir ada di blok detail. Menampilkan yang terakhir di baris akan
+    // membuat urutan waktu di kolom kiri terlihat melompat.
+    if (entry.repeatCount > 1) {
+      var repeat = document.createElement('span');
+      repeat.className = 'rp-repeat';
+      repeat.textContent = '\u00d7' + entry.repeatCount;
+      repeat.title = 'Repeated ' + entry.repeatCount + ' times in a row';
+      msg.appendChild(repeat);
+    }
+
     row.appendChild(time);
     row.appendChild(tag);
     row.appendChild(msg);
     wrap.appendChild(row);
+
+    var actions = document.createElement('div');
+    actions.className = 'rp-rowactions';
+    row.appendChild(actions);
+
+    // Salin satu baris. README bagian 2 menyebut menyalin bukti ke bug report
+    // sebagai masalah nomor dua; sering yang dibutuhkan hanya SATU baris, dan
+    // menyeleksinya dengan kursor di panel sempit itu menjengkelkan.
+    var rowCopy = document.createElement('button');
+    rowCopy.type = 'button';
+    rowCopy.className = 'rp-toggle';
+    rowCopy.setAttribute('data-copy-id', String(entry.id));
+    rowCopy.textContent = 'copy';
+    actions.appendChild(rowCopy);
 
     if (hasDetails(entry)) {
       var expanded = !!state.expanded[entry.id];
@@ -660,7 +698,7 @@
       toggle.setAttribute('data-entry-id', String(entry.id));
       toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       toggle.textContent = expanded ? 'hide details' : 'details';
-      row.appendChild(toggle);
+      actions.appendChild(toggle);
 
       if (expanded) {
         var details = document.createElement('div');
@@ -802,6 +840,16 @@
       // sudah tidak pernah dilihat lagi.
       for (var d = 0; d < dropped.length; d++) searchCache.delete(dropped[d].id);
     }
+
+    // Saat dibekukan, entri tetap MASUK tapi tidak dirender. Hitungan tab juga
+    // ikut beku dengan sendirinya, karena renderCounts() dipanggil dari render().
+    // Angka yang bergerak sementara daftarnya diam justru membingungkan.
+    if (state.paused) {
+      state.pausedCount += msg.entries.length;
+      updatePausedBadge();
+      return;
+    }
+
     scheduleRender();
   });
 
@@ -831,39 +879,175 @@
     render();
   }
 
-  function buildExportText() {
-    var header = [
-      '# Rapspect capture',
-      '# page     : ' + (state.tabUrl || '-'),
-      '# title    : ' + (state.tabTitle || '-'),
-      '# exported : ' + new Date().toISOString(),
-      '# tab      : ' + state.scope + (state.failedOnly ? ' + failed only' : ''),
-      '# entries  : ' + state.lastFiltered.length + ' of ' + state.entries.length +
-        ' captured (buffer ' + state.max + ')',
-      '# redaction: ON - headers [' + core.REDACTED_HEADERS.join(', ') + '] and fields [' +
-        core.REDACTED_FIELDS.join(', ') + '] are replaced with ' + core.REDACTED_MARK,
-      ''
-    ];
-    var lines = [];
-    for (var i = 0; i < state.lastFiltered.length; i++) {
-      lines.push(entryToLine(state.lastFiltered[i]));
+  // ---------------------------------------------------------------------------
+  // Pause
+  // ---------------------------------------------------------------------------
+
+  /** Pause membekukan TAMPILAN, bukan penangkapan.
+   *
+   *  Dua tafsir mungkin untuk "pause", dan pilihannya bukan sepele: menyetop
+   *  capture juga akan mencegah ring buffer terisi noise, tapi bukti yang tidak
+   *  tertangkap tidak bisa dikembalikan. Tampilan yang tertahan bisa. Jadi entri
+   *  tetap mengalir masuk ke state; hanya render yang ditahan.
+   *
+   *  Penanda PAUSED dibuat mencolok karena panel yang dibekukan dan panel yang
+   *  rusak terlihat sama persis dari luar. */
+  function setPaused(paused) {
+    state.paused = !!paused;
+    el.pause.setAttribute('aria-pressed', state.paused ? 'true' : 'false');
+    el.pause.textContent = state.paused ? 'Resume' : 'Pause';
+
+    if (!state.paused) {
+      state.pausedCount = 0;
+      el.pausedBadge.hidden = true;
+      render();
+      return;
     }
-    return header.concat(lines).join('\n');
+    updatePausedBadge();
   }
 
-  async function doCopy() {
-    var text = buildExportText();
-    var ok = false;
+  function updatePausedBadge() {
+    el.pausedBadge.hidden = false;
+    el.pausedBadge.textContent = state.pausedCount > 0
+      ? 'PAUSED +' + state.pausedCount
+      : 'PAUSED';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Preferensi yang diingat
+  // ---------------------------------------------------------------------------
+
+  var PREFS_KEY = 'rp:prefs';
+
+  /** Yang diingat: tab, filter request gagal, pengelompokan, dan field redaction
+   *  tambahan.
+   *
+   *  Yang SENGAJA TIDAK diingat, dan ini yang penting:
+   *
+   *  - Teks pencarian. Panel yang terbuka dengan pencarian aktif dari sesi lain
+   *    tampak seperti panel yang kehilangan data.
+   *  - Status paused. Membuka panel dalam keadaan dibekukan adalah cara tercepat
+   *    menyimpulkan bahwa capture-nya rusak. */
+  function savePrefs() {
+    var payload = {};
+    payload[PREFS_KEY] = {
+      scope: state.scope,
+      failedOnly: state.failedOnly,
+      group: state.group,
+      extra: el.extra.value
+    };
+    try { chrome.storage.local.set(payload); } catch (e) {}
+  }
+
+  function loadPrefs() {
+    return new Promise(function (resolve) {
+      try {
+        chrome.storage.local.get(PREFS_KEY, function (res) {
+          var p = (res && res[PREFS_KEY]) || {};
+
+          if (typeof p.failedOnly === 'boolean') {
+            state.failedOnly = p.failedOnly;
+            el.failed.checked = p.failedOnly;
+          }
+          if (typeof p.group === 'boolean') {
+            state.group = p.group;
+            el.group.checked = p.group;
+          }
+          if (typeof p.extra === 'string' && p.extra) {
+            el.extra.value = p.extra;
+            core.setExtraFields(parseExtraFields(p.extra));
+          }
+          if (typeof p.scope === 'string' && SCOPES.indexOf(p.scope) !== -1) {
+            state.scope = p.scope;
+            el.tabs.forEach(function (tab) {
+              tab.setAttribute('aria-selected',
+                tab.getAttribute('data-scope') === p.scope ? 'true' : 'false');
+            });
+          }
+          resolve();
+        });
+      } catch (e) { resolve(); }
+    });
+  }
+
+  function parseExtraFields(raw) {
+    return String(raw || '').split(',').map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length > 0; });
+  }
+
+  function applyExtraFields() {
+    var list = parseExtraFields(el.extra.value);
+    var applied = core.setExtraFields(list);
+
+    // Ditulis ke storage.local, bukan dikirim sebagai pesan. Service worker
+    // membacanya saat bangun DAN mendengarkan storage.onChanged, jadi setelan
+    // tetap berlaku walaupun worker sedang mati saat ini disimpan.
+    var payload = {};
+    payload['rp:extraRedact'] = applied;
+    try { chrome.storage.local.set(payload); } catch (e) {}
+
+    updateRedactionIndicator();
+    savePrefs();
+  }
+
+  function updateRedactionIndicator() {
+    var extra = core.getExtraFields();
+    el.redaction.textContent = extra.length ? 'Redaction ON +' + extra.length : 'Redaction ON';
+    el.redaction.title = 'Redaction is always on in v1 and cannot be turned off.\n' +
+      'Headers: ' + core.REDACTED_HEADERS.join(', ') + '\n' +
+      'Fields: ' + core.REDACTED_FIELDS.join(', ') +
+      (extra.length ? '\nAdded by you: ' + extra.join(', ') : '');
+  }
+
+  function reportMeta() {
+    return {
+      url: state.tabUrl,
+      title: state.tabTitle,
+      tab: state.scope,
+      failedOnly: state.failedOnly,
+      query: el.search.value.trim(),
+      total: state.entries.length,
+      max: state.max
+    };
+  }
+
+  /** Entri yang diekspor mengikuti apa yang TERLIHAT, termasuk pengelompokan.
+   *  Laporan yang tidak cocok dengan panel saat dibuat akan membingungkan orang
+   *  yang membacanya di tiket. */
+  function reportEntries() {
+    return groupRepeats(state.lastFiltered);
+  }
+
+  /** Satu pintu untuk menulis ke clipboard, dipakai semua tombol salin. */
+  async function writeClipboard(text) {
     try {
       // Butuh dokumen yang sedang fokus. Klik tombol sudah memenuhi itu, jadi
       // jalur ini yang dipakai lebih dulu dan tidak perlu izin clipboardWrite.
       await navigator.clipboard.writeText(text);
-      ok = true;
+      return true;
     } catch (e) {
       // Fallback untuk kasus dokumen kehilangan fokus atau clipboard ditolak.
-      ok = copyViaTextarea(text);
+      return copyViaTextarea(text);
     }
+  }
+
+  async function doCopy() {
+    var ok = await writeClipboard(core.buildReport('text', reportMeta(), reportEntries()));
     flashButton(el.copy, ok ? 'Copied' : 'Copy failed', 'Copy as text');
+  }
+
+  /** Salin satu baris saja, beserta detailnya kalau ada.
+   *  Ini bentuk yang paling sering ditempelkan ke komentar tiket. */
+  async function copySingle(id) {
+    var entry = null;
+    for (var i = 0; i < state.entries.length; i++) {
+      if (state.entries[i].id === id) { entry = state.entries[i]; break; }
+    }
+    if (!entry) return;
+
+    var text = entryToLine(entry);
+    if (hasDetails(entry)) text += '\n' + detailsText(entry);
+    await writeClipboard(text);
   }
 
   function copyViaTextarea(text) {
@@ -905,36 +1089,35 @@
     if (lastFocused && lastFocused.focus) lastFocused.focus();
   }
 
-  function doExport() {
-    var payload = {
-      tool: 'Rapspect',
-      version: '1.0.0',
-      exportedAt: new Date().toISOString(),
-      page: { url: state.tabUrl, title: state.tabTitle },
-      redaction: {
-        enabled: true,
-        headers: core.REDACTED_HEADERS,
-        fields: core.REDACTED_FIELDS,
-        mark: core.REDACTED_MARK,
-        note: 'Response bodies are never captured. Review this file before sharing.'
-      },
-      bufferLimit: state.max,
-      capturedCount: state.entries.length,
-      exportedCount: state.lastFiltered.length,
-      filters: {
-        tab: state.scope,
-        failedOnly: state.failedOnly,
-        query: state.query
-      },
-      surface: surface,
-      entries: state.lastFiltered
-    };
+  var FORMAT_META = {
+    markdown: { ext: 'md',   mime: 'text/markdown' },
+    jira:     { ext: 'txt',  mime: 'text/plain' },
+    json:     { ext: 'json', mime: 'application/json' },
+    text:     { ext: 'txt',  mime: 'text/plain' }
+  };
 
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  function currentFormat() {
+    var value = el.format.value;
+    return FORMAT_META[value] ? value : 'markdown';
+  }
+
+  async function doExportCopy() {
+    var format = currentFormat();
+    var ok = await writeClipboard(core.buildReport(format, reportMeta(), reportEntries()));
+    flashButton(el.modalCopy, ok ? 'Copied' : 'Failed', 'Copy');
+    if (ok) setTimeout(closeExportDialog, 400);
+  }
+
+  function doExport() {
+    var format = currentFormat();
+    var meta = FORMAT_META[format];
+    var text = core.buildReport(format, reportMeta(), reportEntries());
+
+    var blob = new Blob([text], { type: meta.mime + ';charset=utf-8' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = buildFileName();
+    a.download = buildFileName(meta.ext);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -943,16 +1126,20 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 
     closeExportDialog();
-    flashButton(el.exportBtn, 'Saved', 'Export JSON');
+    flashButton(el.exportBtn, 'Saved', 'Export');
   }
 
-  function buildFileName() {
+  function buildFileName(ext) {
     var host = 'page';
     try { host = new URL(state.tabUrl).hostname || 'page'; } catch (e) {}
     var d = new Date();
-    var stamp = d.getFullYear() + pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) + '-' +
-                pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2);
-    return 'rapspect-' + host.replace(/[^a-z0-9.\-]/gi, '_') + '-' + stamp + '.json';
+    var p = function (n) { return n < 10 ? '0' + n : String(n); };
+    var stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' +
+                p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+    // Pola nama ini yang diabaikan .gitignore lewat rapspect-*.json. Ekstensi
+    // baru (md, txt) TIDAK tercakup pola itu - dicatat sebagai hal yang perlu
+    // dilihat kalau nanti hasil ekspor mulai bocor ke commit.
+    return 'rapspect-' + host.replace(/[^a-z0-9.\-]/gi, '_') + '-' + stamp + '.' + ext;
   }
 
   // ---------------------------------------------------------------------------
@@ -979,6 +1166,23 @@
   el.exportBtn.addEventListener('click', openExportDialog);
   el.modalCancel.addEventListener('click', closeExportDialog);
   el.modalConfirm.addEventListener('click', doExport);
+  el.modalCopy.addEventListener('click', doExportCopy);
+
+  el.pause.addEventListener('click', function () { setPaused(!state.paused); });
+
+  el.group.addEventListener('change', function () {
+    state.group = el.group.checked;
+    savePrefs();
+    render();
+  });
+
+  var extraTimer = null;
+  el.extra.addEventListener('input', function () {
+    // Debounce lebih panjang daripada pencarian: setiap perubahan menulis ke
+    // storage dan membangunkan service worker, jadi tidak perlu per karakter.
+    if (extraTimer) clearTimeout(extraTimer);
+    extraTimer = setTimeout(applyExtraFields, 500);
+  });
 
   el.modal.addEventListener('click', function (ev) {
     // Klik di area gelap di luar kotak dialog menutup dialog.
@@ -1011,6 +1215,7 @@
 
   el.failed.addEventListener('change', function () {
     state.failedOnly = el.failed.checked;
+    savePrefs();
     render();
   });
 
@@ -1100,7 +1305,21 @@
   // Delegasi event: tombol "details" dibuat ulang setiap render, jadi listener
   // dipasang sekali di kontainer, bukan per tombol.
   el.list.addEventListener('click', function (ev) {
-    var button = ev.target && ev.target.closest ? ev.target.closest('.rp-toggle') : null;
+    if (!ev.target || !ev.target.closest) return;
+
+    // Salin satu baris diperiksa lebih dulu: tombolnya juga berkelas rp-toggle,
+    // jadi kalau pengecekan details jalan dulu, klik copy ikut membuka detail.
+    var copyButton = ev.target.closest('[data-copy-id]');
+    if (copyButton) {
+      var copyId = parseInt(copyButton.getAttribute('data-copy-id'), 10);
+      if (isFinite(copyId)) {
+        copySingle(copyId);
+        flashButton(copyButton, 'copied', 'copy');
+      }
+      return;
+    }
+
+    var button = ev.target.closest('[data-entry-id]');
     if (!button) return;
     var id = parseInt(button.getAttribute('data-entry-id'), 10);
     if (!isFinite(id)) return;
@@ -1108,15 +1327,20 @@
     render();
   });
 
-  el.redaction.title = 'Redaction is always on in v1. Headers: ' +
-    core.REDACTED_HEADERS.join(', ') + '. Fields: ' + core.REDACTED_FIELDS.join(', ') + '.';
-
   // ---------------------------------------------------------------------------
   // Start
   // ---------------------------------------------------------------------------
 
   loadTheme();
-  resolveActiveTab();
+  updateRedactionIndicator();
+
+  // Preferensi dimuat SEBELUM tab diselesaikan, supaya render pertama sudah
+  // memakai tab dan filter yang benar. Kalau dibalik, panel berkedip sekali dari
+  // tampilan default ke tampilan tersimpan.
+  loadPrefs().then(function () {
+    updateRedactionIndicator();
+    resolveActiveTab();
+  });
 
   // Ping sekali agar service worker yang sedang tidur bangun sebelum QA mulai
   // berinteraksi dengan halaman.
