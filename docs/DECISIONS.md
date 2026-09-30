@@ -23,7 +23,7 @@ konfirmasi.
 | T1 | Nama folder proyek `Rabspect`, sedangkan README menyebut `Rapspect` dan struktur folder di bagian 9 memakai `rapspect/` | Kode ditulis di folder yang ada (`Rabspect`). Nama produk di manifest tetap `Rapspect` sesuai README. Rename folder saya serahkan ke kamu |
 | T2 | README bagian 6 menyatakan `#B58600` adalah perbaikan untuk kuning di light mode. Hasil hitung: `#B58600` **masih gagal** 4.5:1 (rasio 2.96:1 di `--rp-bg`) | Dipakai `#8A6100`. Detail di bagian 1 |
 | T3 | Empty state: kamu menulis `No tracks yet -- reload...` (dua tanda hubung), README bagian 10 menulis `No tracks yet — reload...` (em dash) | Dipakai versi README (em dash), karena README adalah sumber kebenaran |
-| T4 | Ikon `icon16/32/48/128.png` belum ada, dan saya dilarang menggambar sendiri. Manifest yang menunjuk file ikon yang tidak ada membuat **load unpacked gagal total** dengan error `Could not load icon` | `manifest.json` dikirim **tanpa** blok `icons` dan `default_icon` supaya extension bisa di-load. Blok JSON siap-tempel ada di bagian 3.3 |
+| T4 | ~~Ikon `icon16/32/48/128.png` belum ada~~ **SELESAI.** Awalnya manifest dikirim tanpa blok `icons` karena menunjuk file yang tidak ada membuat load unpacked gagal total dengan `Could not load icon` | Keempat PNG sekarang dibuat dari file logo sumber oleh `tools/make-icons.ps1`, dan blok `icons` serta `default_icon` sudah terpasang di `manifest.json`. Detail di bagian 3.3. Sisa pekerjaan desain dicatat di bagian 3.4 |
 
 Tambahan yang saya lakukan **di luar** daftar eksplisit README, supaya kamu tahu
 dan bisa menolak:
@@ -40,6 +40,12 @@ dan bisa menolak:
 - `tools/selftest-redaction.js` dan `tools/selftest-contrast.js` ditambahkan:
   dua pemeriksaan mekanis, modul bawaan Node saja, tidak ada dependency dan
   tidak ada test framework. Alasan di bagian 7.6.
+- `tools/make-icons.ps1` ditambahkan: mengubah file logo JPEG menjadi empat PNG
+  ikon dengan alpha channel, sekaligus membuang papan catur di dalam badge.
+  Hanya memakai `System.Drawing` yang sudah ada di Windows. Alasan di bagian 3.3.
+- `assets/Rapspect.jpg` dibuat ulang sebagai salinan dari `assets/Rapspect.jpeg`,
+  karena banner di `README.MD` menunjuk path `.jpg` dan README tidak boleh saya
+  ubah. Git menyimpan blob identik satu kali, jadi ukuran repo tidak bertambah.
 
 ---
 
@@ -144,6 +150,63 @@ nilai yang dipakai, supaya audit bisa dilakukan tanpa membuka dokumen ini.
 - Angka di atas dihitung dari nilai hex di README, yang oleh README sendiri
   disebut "perkiraan yang diambil dari file JPG". Kalau nanti nilai brand
   diperbarui dari file sumber vektor, **audit ini harus diulang**.
+
+### 1.6 Kontras lolos, UI tetap rusak: kasus `--rp-debug`
+
+Temuan ini muncul **setelah** audit di bagian 1.2 sampai 1.4 selesai, dari
+pengujian nyata di Chrome, bukan dari perhitungan. Layak ditulis panjang karena
+pelajarannya bukan tentang satu warna.
+
+**Gejalanya.** Di panel, chip filter `Debug` yang sedang **aktif** terlihat sama
+seperti chip yang sudah dimatikan. Tidak ada cara tahu apakah level debug sedang
+ditampilkan atau tidak.
+
+**Dua sebab yang menumpuk.**
+
+Pertama, `--rp-debug` di dark mode bernilai `#9AA8BC`, sementara
+`--rp-text-muted` bernilai `#A8BACD`. Jarak keduanya hanya 28 dalam ruang RGB —
+untuk mata, praktis warna yang sama. Karena `--rp-text-muted` dipakai sebagai
+warna chip yang **mati**, chip debug yang hidup memakai warna yang artinya
+"mati". Di light mode lebih parah: saya sendiri menetapkan `--rp-debug` ke
+`#5A6B7F` di bagian 1.4, yang **persis sama** dengan `--rp-text-muted`. Jaraknya
+nol. Tidak ada mata yang bisa membedakannya.
+
+Kedua, dan ini kesalahan desain yang lebih mendasar: status nyala/mati chip
+disampaikan **hanya oleh warna**. Begitu dua warna berdekatan, satu-satunya
+saluran informasi yang ada langsung runtuh. Cara itu juga tidak pernah bekerja
+untuk siapa pun yang kesulitan membedakan warna.
+
+**Yang diperbaiki.**
+
+| Tema | README bagian 6 | Dipakai | Kontras | Jarak ke `--rp-text-muted` |
+|---|---|---|---|---|
+| dark | `#9AA8BC` | **`#7EA8DB`** | 6.93:1 di bg, 5.17:1 di zebra | 28 → **48** |
+| light | (tidak ada) | **`#3F5A80`** | 6.32:1 di bg | 0 → **32** |
+
+Hue digeser ke biru, bukan diberi warna baru yang mencolok, supaya tetap terbaca
+sebagai "kurang penting" dan tidak bertabrakan dengan teal `--rp-info` (jarak 70
+di dark, 56 di light).
+
+Selain itu status chip sekarang dibedakan oleh **bentuk**, dan warna hanya
+menambah informasi:
+
+- aktif → titik penanda **terisi penuh**
+- mati → titik **berongga** (hanya cincin), label dicoret, chip diredupkan
+
+Bentuknya tetap terbaca walaupun warnanya tidak terbaca sama sekali.
+
+**Yang berubah dari cara audit ini bekerja.** `tools/selftest-contrast.js`
+sekarang punya pemeriksaan kedua yang bukan soal kontras: **jarak minimum antar
+token** yang berisiko bertabrakan, dengan ambang 25. Pemeriksaan pertama tidak
+akan pernah menangkap masalah ini — `#5A6B7F` lolos 4.91:1 dengan nyaman, dan
+tetap membuat UI tidak terpakai.
+
+Pelajarannya, dan ini yang sebenarnya penting: **lolos WCAG bukan bukti sebuah
+antarmuka bisa dipakai.** Ambang 4.5:1 hanya menjawab "apakah teks ini terbaca
+di atas latarnya". Ambang itu tidak menjawab "apakah dua hal yang berbeda makna
+terlihat berbeda". Aturan README bagian 6 nomor 2 — satu warna, satu makna —
+justru menjawab pertanyaan kedua, dan sampai temuan ini tidak ada apa pun yang
+menegakkannya. Sekarang ada.
 
 ---
 
@@ -334,37 +397,79 @@ Chrome 114+. Angka 114 adalah yang lebih tinggi. Menuliskannya membuat Chrome
 lama menolak extension dengan pesan versi yang jelas, bukan gagal misterius
 dengan `chrome.sidePanel is undefined`.
 
-## 3.3 Blok ikon yang harus ditempel nanti
+## 3.3 Ikon extension: sudah terpasang
 
-Begitu `assets/icons/icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`
-benar-benar ada, tambahkan dua blok ini ke `manifest.json`:
+Blok `icons` dan `action.default_icon` sudah ada di `manifest.json` dan menunjuk
+`assets/icons/icon16.png`, `icon32.png`, `icon48.png`, `icon128.png`. Keempatnya
+ada di repo, jadi load unpacked berjalan tanpa error.
 
-```json
-  "icons": {
-    "16": "assets/icons/icon16.png",
-    "32": "assets/icons/icon32.png",
-    "48": "assets/icons/icon48.png",
-    "128": "assets/icons/icon128.png"
-  },
-  "action": {
-    "default_title": "Open Rapspect panel",
-    "default_icon": {
-      "16": "assets/icons/icon16.png",
-      "32": "assets/icons/icon32.png",
-      "48": "assets/icons/icon48.png",
-      "128": "assets/icons/icon128.png"
-    }
-  }
+**Kenapa awalnya tidak ada.** Manifest yang menunjuk file ikon yang tidak ada
+membuat Chrome menolak extension sepenuhnya dengan
+`Could not load icon '...' specified in 'icons'` — bukan sekadar ikon kosong,
+tapi extension tidak muncul sama sekali. Selama keempat PNG belum ada, tidak
+menyebut ikon adalah satu-satunya cara agar extension tetap bisa dimuat. Saya
+juga tidak membuat PNG placeholder abu-abu, karena placeholder gampang lupa
+diganti lalu ikut terbit ke Chrome Web Store.
+
+**Bagaimana file-nya dibuat.** File sumber yang tersedia adalah JPEG
+(`assets/Rapspect.jpeg`, 1686x2528, `Format24bppRgb`, tanpa alpha channel).
+Mengganti ekstensinya menjadi `.png` tidak mengubah apa pun — isinya tetap JPEG,
+dan header byte-nya masih `FF D8 FF E0`. Dua masalah harus diselesaikan lebih
+dulu:
+
+1. **Papan catur.** Seperti yang ditulis README bagian 9, kotak-kotak abu-abu di
+   dalam badge itu piksel asli, bukan transparansi. Dipakai langsung, ikonnya
+   benar-benar berlatar papan catur.
+2. **Tidak ada alpha channel.** Ikon toolbar harus menyatu dengan warna toolbar
+   yang bisa terang atau gelap, jadi latarnya wajib transparan.
+
+`tools/make-icons.ps1` menyelesaikan keduanya tanpa dependency apa pun, hanya
+`System.Drawing` yang sudah ada di Windows:
+
+- mendeteksi lingkaran badge navy **secara otomatis** dari baris navy terlebar di
+  bagian atas gambar, jadi tidak ada koordinat yang ditulis manual dan skripnya
+  tetap jalan kalau logo diekspor ulang dengan komposisi berbeda
+- mengganti piksel papan catur dengan `--rp-cream` solid. Pembedanya: piksel
+  papan catur **netral** (selisih kanal maksimum 22) dan **terang**. Moncong onta
+  yang warnanya cream punya selisih R-B sekitar 30 dan gigi lebih kuning lagi,
+  jadi keduanya tidak ikut tertimpa
+- membuat latar di luar badge transparan dengan tepi bergradasi, supaya tidak
+  bergerigi setelah dikecilkan. Tassel merah/kuning/teal yang menggantung di
+  luar lingkaran jaraknya jauh dari warna latar, jadi tetap utuh
+- memotong persegi lalu mengecilkan bertahap (halving), karena bicubic sekali
+  langkah dari 1752px ke 16px hasilnya berbintik
+
+Hasilnya diverifikasi: keempat file benar PNG (`89 50 4E 47`),
+`Format32bppArgb`, dan berukuran tepat 16/32/48/128 piksel. Skripnya bisa
+dijalankan ulang kapan saja:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\make-icons.ps1 -Source assets\Rapspect.jpeg
 ```
 
-Blok `action` di atas **menggantikan** yang sekarang ada di manifest. Jangan
-tempel sebelum keempat PNG benar-benar ada: Chrome menolak load unpacked dengan
-`Could not load icon '...' specified in 'icons'` dan extension tidak muncul sama
-sekali. Ini alasan T4 di bagian 0.
+Ikut dihasilkan `assets/branding/logo-badge-512.png`: versi bersih dari logo yang
+seharusnya menggantikan JPEG sebagai aset sumber raster.
 
-Spesifikasi tingkat detail tiap ukuran ada di README bagian 9 dan tidak saya
-ubah. Saya juga tidak membuat PNG placeholder, karena placeholder abu-abu
-gampang lupa diganti lalu ikut terbit ke Chrome Web Store.
+## 3.4 Batas ikon yang sekarang, dan apa yang masih perlu desainer
+
+Yang sekarang ada adalah **hasil pengecilan satu gambar**, bukan
+**penyederhanaan progresif** yang diminta README bagian 9. Bedanya nyata dan
+sudah terlihat: di 16x16 wajah ontanya jadi gumpalan pucat, hanya cincin
+navy-nya yang masih terbaca sebagai bentuk.
+
+Yang sudah bisa dilakukan tanpa menggambar: ukuran 128 dan 48 memakai potongan
+yang menyertakan tassel, sedangkan 32 dan 16 memakai potongan badge saja — README
+bagian 9 memang menyebut ikon 16 tanpa tassel, dan di ukuran itu tassel hanya
+menjadi tiga bintik yang mengaburkan bentuk kepala.
+
+Yang **tidak** bisa diselesaikan dengan pengecilan, dan tetap butuh desainer:
+
+- varian 16 dan 32 digambar ulang dari vektor, tanpa tassel dan tanpa gigi,
+  sesuai tabel tingkat detail README bagian 9
+- `logo-master.svg`. Tidak bisa diturunkan dari raster; perlu file vektor asli
+
+Begitu file baru tersedia, cukup taruh di `assets/icons/` dengan nama yang sama.
+`manifest.json` tidak perlu diubah.
 
 ---
 
@@ -493,7 +598,7 @@ tertulis di README, jadi saya catat di sini dan di laporan akhir.
 | **Ikon Lucide di UI** | README bagian 8 mewajibkan Lucide dan melarang menggambar ikon sendiri. Tanpa `npm install` dan tanpa mengambil file dari internet, saya tidak punya path SVG Lucide yang bisa saya jamin benar. Menggambar sendiri melanggar README. Jadi v1 memakai **label teks** (`Clear`, `Export JSON`, `Failed only`) yang justru persis gaya yang diminta README bagian 10 | begitu file SVG Lucide ditaruh manual di `assets/ui/`. Daftar ikon yang dibutuhkan ada di README bagian 8 |
 | **Virtual scrolling di daftar log** | Tidak dibuat, dan tidak dibutuhkan: buffer dibatasi 500 baris. Menambah virtualisasi hanya menambah kode yang harus kamu baca tanpa manfaat terukur | kalau buffer nanti dinaikkan jauh di atas 500 |
 | **Pause capture** | README bagian 13 menempatkannya di v1.1 | v1.1 |
-| **Ikon extension di toolbar** | Keempat PNG belum ada. Chrome menampilkan ikon puzzle generik | begitu ikon tersedia, lihat bagian 3.3 |
+| **Ketajaman ikon di 16x16** | Keempat PNG sudah ada dan terpasang, tapi hasil pengecilan satu gambar. Di 16px wajah onta jadi gumpalan; hanya cincin navy yang terbaca | butuh varian 16 dan 32 digambar ulang dari vektor, lihat bagian 3.4 |
 
 ---
 

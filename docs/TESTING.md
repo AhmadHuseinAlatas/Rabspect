@@ -79,8 +79,12 @@ redaction bolong berarti kamu berpotensi menyalin token asli ke bug report.
 
 Yang normal terlihat setelah langkah ini:
 
-- Ikon di toolbar berupa **puzzle piece generik**, bukan logo onta. Keempat PNG
-  ikon belum ada; lihat `assets/icons/README.txt`. Ini bukan error.
+- Ikon di toolbar berupa **logo onta**: badge navy dengan latar dalam cream.
+  Kalau yang muncul puzzle piece generik, Chrome menyembunyikannya di menu
+  overflow — klik ikon puzzle lalu pin Rapspect.
+- Di ukuran 16px wajah ontanya memang tidak tajam. Ikon sekarang hasil
+  pengecilan satu gambar, bukan digambar ulang khusus ukuran kecil; lihat
+  `docs/DECISIONS.md` bagian 3.4. Ini bukan error.
 - Kartu extension menampilkan tautan **service worker** (kadang tertulis
   "Inspect views service worker"). Kalau ada label **Errors** berwarna merah,
   klik dan baca isinya — itu bukan normal.
@@ -262,6 +266,22 @@ terbuka di tab aktif.
 | V-59 | Reload halaman uji, hitung baris `PAGE` | Tepat **satu** baris per reload, bukan dua. Dedupe bekerja |
 | V-60 | Di DevTools halaman uji jalankan `console.log('after devtools')` | Baris masuk ke panel. Rapspect dan DevTools bisa hidup bersamaan tanpa konflik |
 
+### 6.9 Keadaan kosong, penanda filter, dan ikon
+
+Delapan langkah ini menguji perbaikan yang lahir dari pengujian nyata, bukan dari
+spesifikasi awal. Keduanya pernah benar-benar membingungkan saat dipakai.
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-61 | Setelah **Run all scenarios**, centang **Failed only** lalu matikan chip `Error` | Daftar kosong **dengan penjelasan**, bukan area kosong tanpa keterangan. Muncul `21 entries captured, none match the current filter.` (angka mengikuti jumlah sebenarnya) |
+| V-62 | Baca baris kedua pada notice V-61 | Menyebut filter yang aktif satu per satu, misalnya `Active: "Failed only (status >= 400)" is on; muted levels: error.` |
+| V-63 | Periksa footer saat notice V-61 tampil | `0 shown / 21 captured (buffer 500)`. Jumlah captured tidak berubah — filter menyembunyikan, bukan menghapus |
+| V-64 | Klik **Reset filters** pada notice itu | Semua chip menyala kembali, centang Failed only hilang, kotak Search kosong, dan seluruh baris muncul |
+| V-65 | Ketik `zzzzz` di Search pada halaman yang sudah punya log | Notice yang sama muncul, dan penjelasnya menyebut `search is "zzzzz"` dengan huruf apa adanya seperti yang diketik |
+| V-66 | Bandingkan notice ini dengan empty state di V-06 | Dua teks yang **berbeda**. `No tracks yet` menyuruh reload halaman; notice filter menyuruh mengubah filter. Keduanya tidak boleh tertukar |
+| V-67 | Perhatikan chip level yang menyala dan yang mati | Chip menyala punya titik **terisi penuh**. Chip mati punya titik **berongga**, labelnya dicoret, dan tampak lebih redup. Perbedaannya terlihat tanpa mengandalkan warna |
+| V-68 | Nyalakan dan matikan chip `Debug` bergantian | Perbedaan nyala dan mati jelas terlihat. Sebelum perbaikan, chip Debug yang aktif tampak seperti chip mati karena warnanya nyaris sama dengan warna chip nonaktif |
+
 ---
 
 ## 7. Masalah umum dan solusinya
@@ -276,7 +296,8 @@ Urutkan dari kemungkinan terbesar.
 | Muncul notice `Can't read this page...` | Tab aktif adalah `chrome://`, `chrome-extension://`, `about:`, `view-source:`, atau Chrome Web Store. Chrome melarang semua extension menyuntik ke sana | Buka halaman web biasa. Bukan bug, dan tidak bisa diperbaiki dari sisi kode |
 | Notice menyebut **Allow access to file URLs** | Halaman dibuka dari `file://` | `chrome://extensions` → **Details** pada Rapspect → nyalakan **Allow access to file URLs** → reload halaman. Lebih baik lagi: pakai `node tools/serve.js` |
 | Header panel menampilkan judul tab yang **salah** | Panel masih menunjuk tab sebelumnya | Klik tab yang dituju sekali lagi. Panel mengikuti `chrome.tabs.onActivated` |
-| Panel kosong padahal halaman aktif dan normal | Buffer sudah di-Clear, atau semua entri tersaring habis oleh filter | Periksa hitungan di footer. Kalau `0 shown / 120 captured`, masalahnya filter: kosongkan Search dan hapus centang Failed only |
+| Muncul `N entries captured, none match the current filter.` | Datanya ada, tapi filter yang aktif menyembunyikan semuanya. Penyebab paling sering: centang **Failed only (status >= 400)** masih menyala dari pemeriksaan sebelumnya | Baris kedua notice itu menyebut filter mana yang aktif. Klik **Reset filters** untuk mengembalikan semuanya sekaligus |
+| Panel kosong tanpa teks apa pun, padahal footer menulis `0 shown / N captured` | Seharusnya tidak terjadi lagi — keadaan ini sekarang selalu memunculkan notice beserta tombol Reset filters | Kalau masih terjadi, itu bug. Sertakan isi console panel (klik kanan di panel lalu Inspect) saat melaporkannya |
 
 ### 7.2 Log tidak muncul
 
@@ -308,12 +329,13 @@ mematikan service worker setelah beberapa puluh detik tanpa event.
 
 | Gejala | Penyebab | Solusi |
 |---|---|---|
-| Ikon toolbar berupa puzzle piece generik | `icon16/32/48/128.png` belum ada, jadi `manifest.json` sengaja tidak menyebut ikon | Perilaku yang diharapkan sekarang. Siapkan keempat PNG sesuai README bagian 9, lalu tempel blok dari `docs/DECISIONS.md` bagian 3.3 |
-| Ikon Rapspect tidak terlihat di toolbar sama sekali | Chrome menyembunyikannya di menu overflow | Klik ikon puzzle di toolbar, lalu pin Rapspect |
-| Setelah menempel blok `icons`, extension gagal di-load dengan `Could not load icon` | Salah satu PNG tidak ada atau nama file-nya beda | Cocokkan nama file persis: `assets/icons/icon16.png` dan seterusnya. Semua huruf kecil |
-| Ikon muncul sebagai papan catur abu-abu | Ikon dibuat dari `Rapspect.jpg` apa adanya. Pola papan catur itu piksel asli, bukan transparansi — JPG tidak punya alpha channel | Ekspor ulang ke PNG dengan transparansi asli, atau isi lingkaran badge dengan warna solid (`--rp-cream` atau putih). README bagian 9 |
-| Ikon 16x16 jadi gumpalan tidak terbaca | Satu gambar diperkecil, bukan empat gambar dengan tingkat detail berbeda | Ikuti tabel penyederhanaan progresif di README bagian 9: tanpa tassel dan tanpa gigi di 16x16 |
-| Logo di banner README GitHub tidak muncul | README menunjuk `assets/Rapspect.jpg` | Sudah diperbaiki: salinan file ada di `assets/Rapspect.jpg`. File asli di root tidak dihapus |
+| Ikon Rapspect tidak terlihat di toolbar sama sekali | Chrome menyembunyikannya di menu overflow, bukan masalah ikon | Klik ikon puzzle di toolbar, lalu pin Rapspect |
+| Extension gagal di-load dengan `Could not load icon` | Salah satu dari keempat PNG hilang atau namanya berubah. Chrome menolak extension **sepenuhnya**, bukan cuma mengosongkan ikonnya | Pastikan `assets/icons/icon16.png`, `icon32.png`, `icon48.png`, `icon128.png` ada, semua huruf kecil. Buat ulang dengan `powershell -ExecutionPolicy Bypass -File tools\make-icons.ps1` |
+| Ikon muncul sebagai papan catur abu-abu | Ikon dibuat dari file JPEG apa adanya. Pola papan catur itu piksel asli, bukan transparansi — JPEG tidak punya alpha channel | Jalankan `tools\make-icons.ps1`; skrip itu mengganti papan catur dengan cream solid dan membuat latarnya transparan |
+| Ganti nama file dari `.jpg` ke `.png` tapi tidak ada yang berubah | Mengganti ekstensi tidak mengubah isi file. Isinya tetap JPEG, penanda byte-nya masih `FF D8 FF` | Konversi sungguhan diperlukan. `tools\make-icons.ps1` melakukannya dan menghasilkan PNG asli dengan alpha channel |
+| Ikon 16x16 tidak tajam | Hasil pengecilan satu gambar, bukan empat gambar dengan tingkat detail berbeda | Batas yang diketahui, tercatat di `docs/DECISIONS.md` bagian 3.4. Perlu varian 16 dan 32 digambar ulang dari vektor sesuai README bagian 9 |
+| Logo di banner README GitHub tidak muncul | README menunjuk `assets/Rapspect.jpg`, dan nama file itu sempat berubah | Pastikan `assets/Rapspect.jpg` ada. README tidak boleh diubah, jadi nama path itu yang harus dipertahankan |
+| Logo di header panel tidak muncul | `src/panel/panel.html` memuat `../../assets/icons/icon48.png` | Periksa file itu ada. Halaman extension boleh memuat aset sendiri tanpa `web_accessible_resources` |
 
 ---
 
