@@ -32,6 +32,64 @@ All three defects listed here previously are now closed.
 
 ### Added
 
+Six features. The v1 scope in README section 4 was already complete, so these come
+from README section 13's roadmap plus three small wins against the workflow in
+section 2. Reasoning in `docs/DECISIONS.md` section 2.6d.
+
+- **Markdown and Jira export**, roadmap v2.1, brought forward because it is the
+  most direct answer to README section 2's second problem: copying evidence into a
+  bug report is slow and manual. Nobody pastes raw JSON into a ticket. The export
+  dialog now has a format picker, Markdown by default, and a **Copy** button beside
+  **Download** — the clipboard is the path actually used.
+
+  Two characters break a table silently: a pipe splits a column and a newline ends
+  the row early, and stack traces contain both. In Jira `{` also opens a macro. So
+  escaping differs by context, deliberately: braces are **not** escaped in Markdown
+  cells because Markdown gives them no meaning, and **not** escaped inside
+  `{noformat}` because that content is shown literally and a stray backslash would
+  be visible in the ticket. Stack traces are wrapped in `<details>` so a ticket does
+  not balloon. Jira uses `{noformat}` rather than `{code}`, which guesses the
+  language and can mis-colour a stack trace.
+
+- **Pause capture**, roadmap v1.1. It freezes the **view**, not capture. Entries
+  keep arriving and are kept; only rendering is held. The alternative — stopping
+  capture to keep the ring buffer clean — was rejected on one ground: evidence not
+  captured cannot be recovered, a held view can. The `PAUSED` badge carries the
+  number of held entries, because a frozen panel and a broken panel look identical
+  from the outside.
+
+- **Configurable redaction**, roadmap v1.1, **additive only**. Extra field names
+  can be added; the built-in list can never be switched off. An off switch would
+  put a token leak one click away from someone rushing to file a ticket, and a
+  leaked token cannot be recalled once it is in a public repository. Names shorter
+  than three characters are rejected for the same reason `pin` is matched exactly:
+  they would match almost everything and make the log useless. Applied in the
+  service worker, because capture runs in the MAIN world which has no `chrome.*`
+  access at all.
+
+- **Grouping of repeated identical entries**, consecutive only. Grouping
+  non-adjacent entries would scramble chronology, which is the point of reading a
+  log. This protects the 500-entry budget: a page throwing the same error 200 times
+  spends 40% of the buffer on one piece of information. The row shows the **first**
+  occurrence time; the last is in the details block, because showing the last makes
+  the time column appear to jump.
+
+- **Copy a single row.** Often only one line is wanted, and selecting it with a
+  cursor in a 400px panel is irritating.
+
+- **Remembered preferences**: tab, failed-only, grouping, extra redaction fields.
+  Deliberately **not** remembered: the search text, because a panel opening with a
+  stale filter looks like a panel that lost data, and the paused state, because
+  opening frozen is the fastest way to conclude capture is broken.
+
+- **`tools/selftest-report.js`** — 49 checks. The most useful one is not that the
+  report looks tidy but that **every Markdown table row has the same number of
+  column separators**, which is what catches an unescaped pipe without pasting into
+  a real ticket. Its first run failed twice, and both were faults in my assertions
+  rather than the code: the fixture had no braces in a table cell so Jira escaping
+  was never exercised, and I expected `session_id` not to match the extra field
+  `sessionId` when normalisation strips the underscore and makes them the same.
+
 - **Syntax colouring inside log rows**, with the constraint that made it
   admissible under README section 5: it marks structure, not decoration. Two new
   hues only, fully separate from the level palette, so "one colour, one meaning"
@@ -59,6 +117,11 @@ All three defects listed here previously are now closed.
 - `core.tokenizeLog()` moved into `src/shared/rapspect-core.js`. It was written in
   `panel.js` first, which made pure string logic impossible to test without a
   browser. The panel now only translates tokens into DOM nodes.
+- `formatTime`, `formatBytes`, `tagFor` and `entryToLine` moved to
+  `rapspect-core.js` for the same reason, alongside the new report builders.
+- `Export JSON` is now just `Export`, since the format is chosen in the dialog.
+- `.gitignore` covers `rapspect-*.md` and `rapspect-*.txt` as well as `.json`, so
+  the new export formats cannot be committed by accident either.
 
 ### Not done, and deliberately
 

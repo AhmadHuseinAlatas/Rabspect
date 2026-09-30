@@ -535,6 +535,135 @@ HTML akan menjadikan panel target injeksi dari halaman mana pun yang dibuka QA.
 Ada pemeriksaan khusus untuk ini: teks berisi `<script>` dan `onerror=` harus
 keluar dari tokenizer tanpa berubah satu karakter pun.
 
+### 2.6d Enam fitur dari roadmap, dan batas yang dipasang pada dua di antaranya
+
+Ruang lingkup v1 di README bagian 4 sudah selesai seluruhnya sebelum ronde ini —
+kesepuluh item di daftar "Termasuk" terpenuhi. Yang ditambahkan di sini diambil
+dari README bagian 13, ditambah tiga hal kecil yang menyerang langsung alur kerja
+di README bagian 2.
+
+#### Ekspor Markdown dan Jira (roadmap v2.1, dimajukan)
+
+Alasan dimajukan: ini yang paling langsung menjawab **masalah nomor dua** di
+README bagian 2 — *"Menyalin bukti ke bug report itu lambat dan manual."* Export
+JSON bagus untuk arsip, tapi tidak ada yang menempelkan JSON mentah ke tiket.
+
+Dialog export sekarang punya pemilih format, dengan Markdown sebagai default,
+serta tombol **Copy** di samping **Download** — menyalin ke clipboard adalah
+jalur yang sebenarnya dipakai untuk menempel ke tiket.
+
+Dua karakter cukup untuk merusak tabel secara senyap: `|` memecah kolom, dan
+baris baru mengakhiri baris tabel sebelum waktunya. Stack trace mengandung
+keduanya. Di Jira, `{` juga membuka makro. Jadi:
+
+| Konteks | Yang diescape | Yang TIDAK diescape, dan kenapa |
+|---|---|---|
+| Sel tabel Markdown | `\|`, baris baru → spasi | `{` — Markdown tidak memperlakukannya khusus, meng-escape-nya justru mengubah isi log |
+| Sel tabel Jira | `\|`, `{`, baris baru → spasi | — |
+| Blok `{noformat}` Jira | tidak ada | isinya ditampilkan literal; backslash tambahan akan terlihat di tiket |
+
+Stack trace dibungkus `<details>` di Markdown supaya tiket tidak membengkak
+sampai tidak terbaca. Untuk Jira dipakai `{noformat}`, **bukan** `{code}`:
+`{code}` mencoba menebak bahasa dan bisa salah mewarnai stack trace.
+
+`tools/selftest-report.js` menjalankan 49 pemeriksaan. Yang paling berguna bukan
+"laporannya rapi", tapi **setiap baris tabel Markdown harus punya jumlah pemisah
+kolom yang sama** — itu pemeriksaan yang menangkap pipa yang lupa diescape, dan
+satu-satunya cara mengetahuinya tanpa menempelkan ke tiket sungguhan.
+
+#### Pause capture (roadmap v1.1)
+
+Ada dua tafsir, dan pilihannya bukan sepele.
+
+Pause bisa berarti **menyetop penangkapan**, yang punya keuntungan nyata: ring
+buffer tidak terisi noise selagi kamu membaca. Atau **membekukan tampilan**, yang
+menahan render tapi tetap menyimpan semuanya.
+
+Dipilih yang kedua, dengan alasan tunggal: **bukti yang tidak tertangkap tidak
+bisa dikembalikan; tampilan yang tertahan bisa.** Untuk alat yang gunanya
+mengumpulkan bukti bug, kehilangan data adalah kegagalan yang lebih mahal
+daripada tampilan yang ketinggalan.
+
+Penanda `PAUSED` dibuat mencolok di footer beserta jumlah entri yang tertahan
+(`PAUSED +12`). Panel yang dibekukan dan panel yang rusak terlihat **sama persis**
+dari luar, dan itu cara tercepat membuang waktu seseorang. Angkanya juga menjawab
+"apakah halaman masih hidup".
+
+#### Redaction yang bisa dikonfigurasi (roadmap v1.1), tapi hanya satu arah
+
+**Hanya bisa MENAMBAH nama field, tidak pernah mengurangi.** Ini batas yang saya
+pasang sendiri, dan bukan karena malas mengerjakan tombol OFF.
+
+README bagian 11 menyebut redaction "wajib ada sejak v1, bukan ditambahkan
+nanti", dan roadmap v1.1 menyebut "redaction yang bisa dikonfigurasi". Tafsir yang
+paling mudah adalah menambahkan tombol mati. Tapi tombol itu membuat kebocoran
+token hanya berjarak satu klik dari pengguna yang sedang tergesa menyiapkan
+tiket — dan kebocoran token tidak bisa ditarik kembali setelah tertempel di repo
+publik. Daftar bawaan selalu berlaku; konfigurasi hanya memperketatnya.
+
+Nama di bawah tiga karakter ditolak. Alasannya sama dengan `pin` di bagian 5.3:
+satu atau dua karakter akan cocok sebagai substring di hampir semua nama field
+dan menyensor seluruh log sampai tidak berguna.
+
+**Diterapkan di service worker, bukan di titik capture**, dan ini perlu dicatat
+jujur. Kode capture berjalan di MAIN world yang tidak punya akses `chrome.*` sama
+sekali, jadi tidak bisa membaca storage; menyalurkan konfigurasi ke sana berarti
+menambah kanal pesan baru menuju halaman. Konsekuensinya: nilai bernama sensitif
+tambahan **masih melintasi jembatan di dalam halaman** sebelum disensor. Itu data
+milik halaman itu sendiri, yang sudah dia pegang sejak awal, dan tidak ada nilai
+itu yang pernah masuk buffer atau tampil di panel.
+
+#### Pengelompokan entri identik berulang
+
+Hanya yang **berurutan**. Mengelompokkan entri yang berjauhan akan mengacak
+urutan waktu, dan urutan kejadian justru inti dari membaca log saat melacak bug.
+
+Kenapa ini bukan sekadar kosmetik: halaman yang melempar error yang sama 200 kali
+menghabiskan 40% ring buffer untuk satu informasi. Pengelompokan melindungi
+anggaran 500 entri.
+
+Waktu yang ditampilkan di baris adalah kemunculan **pertama**; yang terakhir ada
+di blok detail. Menampilkan yang terakhir akan membuat kolom waktu terlihat
+melompat-lompat. Entri asli tidak pernah disentuh — yang dikelompokkan salinan
+dangkal, karena state harus tetap mencerminkan apa yang benar-benar terjadi.
+
+#### Salin satu baris
+
+README bagian 2 masalah nomor dua lagi. Sering yang dibutuhkan hanya **satu**
+baris, dan menyeleksinya dengan kursor di panel selebar 400px itu menjengkelkan.
+
+Satu detail implementasi yang sempat jadi bug: tombol `copy` dan `details`
+dua-duanya berkelas `rp-toggle`, jadi delegasi event harus memeriksa `copy`
+**lebih dulu** — kalau tidak, mengklik copy ikut membuka blok detail. Keduanya
+juga dibungkus satu wadah flex, bukan diletakkan langsung sebagai anak grid:
+grid akan menaruh dua anak di kolom yang sama pada dua baris berbeda, dan satu
+baris log jadi memakan tinggi tiga baris.
+
+#### Preferensi yang diingat
+
+Diingat: tab, filter request gagal, pengelompokan, dan field redaction tambahan.
+
+**Sengaja tidak diingat**, dan ini bagian yang lebih penting:
+
+- **Teks pencarian.** Panel yang terbuka dengan pencarian aktif dari sesi lain
+  tampak seperti panel yang kehilangan data.
+- **Status paused.** Membuka panel dalam keadaan dibekukan adalah cara tercepat
+  menyimpulkan bahwa capture-nya rusak.
+
+#### Pemindahan ke core, dan satu temuan
+
+`formatTime`, `formatBytes`, `tagFor`, dan `entryToLine` dipindah dari `panel.js`
+ke `rapspect-core.js`, dengan alasan yang sama seperti `tokenizeLog` di bagian
+2.6c: logika string murni yang di `panel.js` tidak bisa diuji tanpa browser.
+
+Dua pemeriksaan pertama `selftest-report.js` gagal saat dijalankan, dan **keduanya
+kesalahan test saya, bukan kodenya** — dicatat karena lebih berguna daripada
+narasi yang bersih. Entri ujinya tidak mengandung kurung kurawal di kolom tabel,
+sehingga escaping Jira tidak pernah benar-benar teruji. Dan saya mengira
+`session_id` tidak akan cocok dengan field tambahan `sessionId`, padahal
+normalisasi membuang garis bawah sehingga keduanya menjadi `sessionid` — cocok,
+dan itu memang perilaku yang diinginkan.
+
 ### 2.7 Tab per level: lensa, bukan tujuh laporan
 
 **Apa yang diminta.** Menu terpisah untuk error, warn, info, log, dan debug,

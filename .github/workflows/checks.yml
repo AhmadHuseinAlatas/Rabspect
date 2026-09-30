@@ -50,7 +50,8 @@ jobs:
             tools/selftest-redaction.js \
             tools/selftest-contrast.js \
             tools/selftest-structure.js \
-            tools/selftest-highlight.js
+            tools/selftest-highlight.js \
+            tools/selftest-report.js
           do
             node --check "$file"
             echo "ok  $file"
@@ -76,3 +77,9 @@ jobs:
       # obvious; a log missing a digit from a line number is trusted and wrong.
       - name: Log tokenising
         run: node tools/selftest-highlight.js
+
+      # A broken Markdown table only reveals itself once it is already pasted into
+      # a ticket. Two characters are enough to break one silently: a pipe splits a
+      # column, a newline ends the row early, and stack traces contain both.
+      - name: Report builders
+        run: node tools/selftest-report.js

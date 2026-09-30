@@ -52,6 +52,7 @@ node tools/selftest-structure.js
 node tools/selftest-redaction.js
 node tools/selftest-contrast.js
 node tools/selftest-highlight.js
+node tools/selftest-report.js
 ```
 
 `selftest-structure.js` memeriksa sambungan proyek: path yang dirujuk manifest,
@@ -62,6 +63,12 @@ diharapkan: `22 pemeriksaan, 0 gagal`.
 `selftest-highlight.js` memeriksa tokenisasi pewarnaan sintaks. Yang diuji bukan
 "warnanya benar" tapi "teksnya utuh": menggabungkan kembali seluruh token harus
 menghasilkan teks asli yang identik. Yang diharapkan: `39 pemeriksaan, 0 gagal`.
+
+`selftest-report.js` memeriksa pembangun laporan Markdown dan Jira. Yang paling
+berguna: setiap baris tabel Markdown harus punya jumlah pemisah kolom yang sama —
+itu yang menangkap karakter `|` di dalam isi log yang lupa diescape, dan
+satu-satunya cara mengetahuinya tanpa menempelkan ke tiket sungguhan. Yang
+diharapkan: `49 pemeriksaan, 0 gagal`.
 
 `selftest-redaction.js` memeriksa 46 hal: header dan field yang wajib disensor,
 **dan** nama field biasa yang tidak boleh ikut tersensor (`shipping`, `pinned`,
@@ -382,6 +389,38 @@ Perilakunya **memang berbeda** antara popup dan side panel, dan itu bukan bug.
 | V-107 | Baca isi pesan log biasa, misalnya `T-01 plain log...` | Teks pesannya **tidak** diwarnai. Hanya bagian berstruktur yang berwarna; sisanya warna teks normal |
 | V-108 | Ganti ke light mode, ulangi V-102 sampai V-107 | Semua bagian tetap terbaca. Violet jadi lebih gelap, angka jadi olive |
 | V-109 | Jalankan `node tools/selftest-highlight.js` | `39 pemeriksaan, 0 gagal` |
+
+### 6.13 Ekspor siap tempel, pause, pengelompokan, dan preferensi
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-110 | Klik **Export** | Dialog muncul dengan pemilih format, default **Markdown**. Ada tombol **Copy** dan **Download** |
+| V-111 | Pilih Markdown, klik **Copy**, tempel ke editor Markdown atau komentar GitHub | Tabel ter-render rapi. Tidak ada kolom yang bergeser, tidak ada baris tabel yang terpotong |
+| V-112 | Pada hasil V-111, periksa baris tabel metadata | Ada Page, Title, Captured, View, Entries, Summary, Redaction |
+| V-113 | Pada hasil V-111, cari blok `<details>` | Stack trace dan detail request ada di dalamnya, bukan di tabel utama |
+| V-114 | Picu log yang isinya mengandung karakter `\|`, lalu ekspor Markdown | Tabelnya tetap utuh. Karakter pipa muncul sebagai `\\\|` di sumbernya |
+| V-115 | Pilih **Jira wiki markup**, Copy, tempel ke deskripsi tiket Jira | Tabel ter-render. Stack trace tampil di blok `{noformat}`, bukan `{code}` |
+| V-116 | Pilih **JSON**, klik **Download** | File `rapspect-<host>-<waktu>.json` terunduh, isinya JSON yang sah |
+| V-117 | Pilih **Markdown**, klik **Download** | File berekstensi `.md`, bukan `.json` |
+| V-118 | Nyalakan tab `Error`, lalu ekspor Markdown | Baris `View` menyebut `tab error`. Isi laporan hanya yang terlihat di tab itu |
+| V-119 | Klik **copy** pada satu baris log, tempel | Hanya baris itu, beserta blok detailnya kalau ada. Tombolnya berubah jadi `copied` sesaat |
+| V-120 | Klik **copy** pada baris yang punya `details` | Detailnya **tidak** ikut terbuka di panel. Klik copy tidak memicu toggle |
+| V-121 | Klik **Pause** | Tombol berubah jadi `Resume` dan mewarna warn. Penanda `PAUSED` muncul di footer |
+| V-122 | Selagi paused, picu banyak log dari halaman uji | Daftar **tidak berubah sama sekali**. Penanda berubah jadi `PAUSED +N` dengan N bertambah |
+| V-123 | Selagi paused, perhatikan hitungan di tab | Angkanya **beku**, tidak ikut bertambah. Angka bergerak sementara daftar diam itu membingungkan |
+| V-124 | Klik **Resume** | Semua entri yang tertahan muncul sekaligus. Penanda hilang. Tidak ada yang hilang |
+| V-125 | Tutup panel selagi paused, buka lagi | Panel **tidak** paused. Status ini sengaja tidak diingat |
+| V-126 | Di halaman uji, klik **console.error** delapan kali berturut-turut | Satu baris saja dengan penanda `×8`, bukan delapan baris |
+| V-127 | Buka `details` pada baris V-126 | Ada baris `repeated : 8 times, first at ..., last at ...` |
+| V-128 | Hapus centang **Group repeats** | Delapan baris terpisah muncul kembali. Hitungan di footer ikut berubah |
+| V-129 | Dengan grouping aktif, periksa hitungan footer | Berbunyi seperti `12 rows (19 entries) / 64 captured` saat pengelompokan benar-benar menggabungkan sesuatu |
+| V-130 | Buka blok **Extra redaction**, ketik `sessionId`, tunggu satu detik | Penanda footer berubah jadi `Redaction ON +1`. Hover menampilkan nama yang kamu tambahkan |
+| V-131 | Di halaman uji, jalankan di console: `fetch('/x',{method:'POST',body:JSON.stringify({sessionId:'SECRET-ABC'})})` | Baris network-nya muncul dengan `sessionId` tersensor `[REDACTED]` |
+| V-132 | Coba masukkan `ab` di Extra redaction | Ditolak, penanda tidak bertambah. Nama di bawah tiga karakter akan menyensor hampir semua field |
+| V-133 | Kosongkan Extra redaction | Penanda kembali `Redaction ON`. Daftar bawaan **tetap** berlaku — uji ulang V-24 sampai V-29 |
+| V-134 | Pilih tab `Warn`, centang Failed only, tutup panel, buka lagi | Tab `Warn` dan centang Failed only masih terpasang |
+| V-135 | Ketik sesuatu di Search, tutup panel, buka lagi | Kotak Search **kosong**. Pencarian sengaja tidak diingat |
+| V-136 | Jalankan `node tools/selftest-report.js` | `49 pemeriksaan, 0 gagal` |
 
 ---
 
