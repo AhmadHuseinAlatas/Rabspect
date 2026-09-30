@@ -1,0 +1,126 @@
+name: Bug report
+description: Something in Rapspect does not behave as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fields below are the six things that otherwise take three rounds of
+        back-and-forth to establish. They come from `docs/TESTING.md` section 8.
+
+        **Before filing, check two things that are documented behaviour, not bugs:**
+
+        - **DevTools Network shows many rows, Rapspect shows few.** Look at the
+          `Type` column. Rapspect hooks `fetch()` and `XMLHttpRequest` only, so
+          stylesheets, images, scripts and fonts never pass through it.
+        - **The side panel does not close when you click the `×`.** Chrome
+          provides no `sidePanel.close()` API. Rapspect detects the refusal and
+          points you at Chrome's own close control.
+
+  - type: input
+    id: chrome-version
+    attributes:
+      label: Chrome version
+      description: From `chrome://version`, the first line. Rapspect requires 116 or newer.
+      placeholder: "134.0.6998.89 (Official Build) (64-bit)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen
+      options:
+        - Popup (clicking the toolbar icon)
+        - Side panel
+        - Both
+        - Not related to the panel UI
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Page under test
+      description: The URL, or "test-page.html via localhost" if you used the bundled fixture.
+      placeholder: "http://localhost:8080/test-page.html"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: What you expected, and what happened
+      description: If it maps to a checklist ID in `docs/TESTING.md`, name it — for example "V-24 fails".
+      placeholder: |
+        Expected: V-24 shows Authorization: [REDACTED] in the details block.
+        Actual: the header is missing from the details block entirely.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. node tools/serve.js
+        2. Load unpacked, open the side panel
+        3. Open http://localhost:8080/test-page.html and reload
+        4. Click "POST with fake Authorization", then "details"
+    validations:
+      required: true
+
+  - type: textarea
+    id: sw-console
+    attributes:
+      label: Service worker console
+      description: |
+        `chrome://extensions` → **service worker** on the Rapspect card → Console tab.
+        A healthy worker logs `[Rapspect] service worker aktif`. Seeing it repeat is
+        normal — MV3 restarts it constantly.
+      render: text
+
+  - type: textarea
+    id: panel-console
+    attributes:
+      label: Panel console
+      description: Right-click inside the panel → **Inspect** → Console tab.
+      render: text
+
+  - type: textarea
+    id: selftests
+    attributes:
+      label: Self-test output
+      description: |
+        Paste the last line of each. All four are expected to pass; a failure here
+        usually identifies the bug on its own.
+      render: shell
+      value: |
+        node tools/selftest-structure.js
+        node tools/selftest-redaction.js
+        node tools/selftest-contrast.js
+
+  - type: textarea
+    id: export
+    attributes:
+      label: Export JSON (optional)
+      description: |
+        Exports are already redacted, so they are normally safe to attach.
+
+        **One exception.** If the bug *is* that something was not redacted, do
+        not attach the file. Describe the field name and shape instead, for
+        example "a header called `X-Auth-Token` was captured in full". That is
+        enough to write a failing assertion against, and it keeps your token out
+        of a public issue.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reloaded the extension **and** the page after changing any code
+          required: true
+        - label: The panel was open before I reloaded the page (Rapspect only sees what happens after it is injected)
+          required: true
+        - label: I checked that no active filter or tab was hiding the rows
+          required: true

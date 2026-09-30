@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Testing guide and troubleshooting
+    url: https://github.com/AhmadHuseinAlatas/Rabspect/blob/main/docs/TESTING.md
+    about: Empty panel, missing logs, inactive service worker, icon problems — most questions are answered in section 7 before they need an issue.
+  - name: Why the code differs from the README
+    url: https://github.com/AhmadHuseinAlatas/Rabspect/blob/main/docs/DECISIONS.md
+    about: The audit trail. Colour contrast findings, rejected architectures, MV3 constraints, and every feature deliberately sacrificed.
+  - name: Security and redaction
+    url: https://github.com/AhmadHuseinAlatas/Rabspect/blob/main/SECURITY.md
+    about: Exactly what is captured, what is never captured, and how to report a redaction gap without publishing your token.

@@ -1,0 +1,74 @@
+name: Feature request
+description: Propose something Rapspect should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Some things are already decided and deliberately out of scope. Checking
+        these first saves everyone a round trip.
+
+        **Deferred to v2**, recorded in `README.MD` section 4:
+
+        - reading response bodies
+        - browser-level logs such as CORS errors and CSP violations
+        - anything requiring `chrome.debugger`, which shows a "being debugged"
+          banner and conflicts with DevTools
+
+        **Never in scope:** blocking or modifying requests, cross-session log
+        storage.
+
+        **Already planned**, see `docs/BACKLOG.md` and `README.MD` section 13:
+        pause capture, configurable redaction, redrawn 16 and 32 px icons.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: |
+        Describe the situation, not the solution. `README.MD` section 2 frames the
+        three problems this project exists to solve, from a manual QA engineer's
+        point of view — the same framing is useful here.
+      placeholder: |
+        When a page redirects during a test, I lose the error that caused it,
+        because I have to scroll back through rows that keep moving.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: textarea
+    id: readme-conflict
+    attributes:
+      label: Does this contradict README.MD
+      description: |
+        `README.MD` is the source of truth for this project. If your proposal
+        conflicts with it, that does not kill the idea — it means the README has
+        to change first, and that is a separate decision. Naming the conflict
+        early is far better than discovering it halfway through a pull request.
+
+        Common one: README sections 2 and 3 require console and network to appear
+        in **one** combined panel. Proposals that split them into separate views
+        touch that requirement directly.
+      placeholder: "Not that I can see / Yes, section 3 says ..."
+
+  - type: dropdown
+    id: permissions
+    attributes:
+      label: Would this need a new permission
+      description: |
+        Rapspect requests `storage`, `sidePanel` and `tabs`, and nothing else.
+        `tools/selftest-structure.js` fails the build if anything else appears.
+        A new permission is not forbidden, but it needs a written justification in
+        `docs/DECISIONS.md` section 3.1 stating what breaks without it.
+      options:
+        - "No, works with the current three"
+        - "Yes, and I know which one"
+        - "Not sure"
+    validations:
+      required: true
