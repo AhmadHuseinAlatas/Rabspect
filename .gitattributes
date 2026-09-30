@@ -1,0 +1,32 @@
+# Rapspect - line endings and binary files
+#
+# WHY THIS EXISTS
+# Every `git add` on Windows printed a warning about LF being replaced by CRLF.
+# The warning was harmless, but it meant line endings depended on whoever cloned
+# the repository. Normalising them here makes a diff show only real changes.
+
+# Store text with LF in the repository and check it out with LF everywhere.
+# Chrome, Node and PowerShell all read LF without complaint, so there is no
+# reason to keep a platform split.
+* text=auto eol=lf
+
+# PowerShell scripts keep CRLF. Some older Windows PowerShell hosts are still
+# fussy about this, and a build tool is not worth debugging over line endings.
+*.ps1 text eol=crlf
+
+# Never touch these. Line ending conversion would corrupt them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.svg text eol=lf
+
+# Keep generated icons and the source logo out of diff output. They are binary,
+# so a diff is unreadable noise that hides the real changes in a pull request.
+assets/icons/*.png -diff
+assets/branding/*.png -diff
+assets/Rapspect.jpg -diff
+assets/Rapspect.jpeg -diff
+Rapspect.jpg -diff

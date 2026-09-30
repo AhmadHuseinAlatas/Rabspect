@@ -1,0 +1,71 @@
+# Rapspect - automated checks
+#
+# There is nothing to build and nothing to install. The extension is loaded as
+# an unpacked folder, so CI verifies the three things that can silently break it:
+# syntax, project wiring, and the two rules that carry real consequences
+# (redaction and colour contrast).
+#
+# Runtime: none. No npm install, no lockfile, no cache. Node ships with the
+# runner and every check uses built-in modules only.
+
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Lets a maintainer re-run the suite from the Actions tab without pushing.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: syntax, structure, redaction, contrast
+    runs-on: ubuntu-latest
+
+    steps:
+      # Action versions are pinned to a major tag rather than left floating.
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Catches a syntax error before it reaches Chrome, where the only symptom
+      # is a service worker that refuses to start with no useful message.
+      - name: Parse every JavaScript file
+        run: |
+          for file in \
+            src/shared/rapspect-core.js \
+            src/content/capture-main.js \
+            src/content/bridge-isolated.js \
+            src/background/service-worker.js \
+            src/panel/panel.js \
+            tools/serve.js \
+            tools/selftest-redaction.js \
+            tools/selftest-contrast.js \
+            tools/selftest-structure.js
+          do
+            node --check "$file"
+            echo "ok  $file"
+          done
+
+      # Manifest paths, permission allowlist, panel.js against panel.html,
+      # colour literals outside the token block, real PNG icons.
+      - name: Project structure
+        run: node tools/selftest-structure.js
+
+      # The check that matters most. A gap here does not produce an ugly panel,
+      # it leaks a token into an exported file and then into a bug report.
+      - name: Redaction rules
+        run: node tools/selftest-redaction.js
+
+      # Contrast against every background, plus a minimum distance between tokens
+      # that are at risk of looking identical.
+      - name: Colour tokens
+        run: node tools/selftest-contrast.js
