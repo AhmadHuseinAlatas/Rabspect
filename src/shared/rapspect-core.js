@@ -99,8 +99,43 @@
     for (var i = 0; i < FIELDS_SUBSTRING.length; i++) {
       if (k.indexOf(FIELDS_SUBSTRING[i]) !== -1) return true;
     }
+    // Nama tambahan dari pengguna. Hanya bisa MENAMBAH, tidak pernah mengurangi -
+    // lihat setExtraFields() untuk alasannya.
+    for (var j = 0; j < EXTRA_FIELDS.length; j++) {
+      if (k.indexOf(EXTRA_FIELDS[j]) !== -1) return true;
+    }
     return false;
   }
+
+  /** Nama field tambahan yang ditentukan pengguna, sudah dinormalkan. */
+  var EXTRA_FIELDS = [];
+
+  /** Tambahkan nama field yang ikut disensor.
+   *
+   *  HANYA BISA MENAMBAH, TIDAK PERNAH MENGURANGI, dan itu keputusan sadar.
+   *  README bagian 13 menempatkan "redaction yang bisa dikonfigurasi" di v1.1,
+   *  tapi konfigurasi yang bisa MEMATIKAN redaction berarti kebocoran token
+   *  hanya berjarak satu klik dari pengguna yang sedang tergesa. Daftar bawaan
+   *  README bagian 11 selalu berlaku; ini hanya memperketatnya.
+   *
+   *  Kasus nyatanya: tim yang punya header internal seperti `X-Internal-Session`
+   *  bisa memasukkannya tanpa menunggu rilis baru. */
+  function setExtraFields(list) {
+    EXTRA_FIELDS = [];
+    if (!Array.isArray(list)) return EXTRA_FIELDS;
+    for (var i = 0; i < list.length; i++) {
+      var k = normalizeKey(list[i]);
+      // Nama sangat pendek ditolak. Satu atau dua karakter akan cocok sebagai
+      // substring di hampir semua nama field dan menyensor seluruh log sampai
+      // tidak berguna - kerusakan yang sama seperti `pin` kalau dicocokkan
+      // sebagai substring.
+      if (k.length < 3) continue;
+      if (EXTRA_FIELDS.indexOf(k) === -1) EXTRA_FIELDS.push(k);
+    }
+    return EXTRA_FIELDS;
+  }
+
+  function getExtraFields() { return EXTRA_FIELDS.slice(); }
 
   // ---------------------------------------------------------------------------
   // Redaction: header
@@ -648,6 +683,340 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Format tampilan
+  // ---------------------------------------------------------------------------
+  // Fungsi-fungsi di bawah tadinya ada di panel.js. Dipindah ke sini karena
+  // semuanya logika string murni, dan di panel.js mereka tidak bisa diuji tanpa
+  // browser. Yang paling penting: pembangun laporan. Tabel Markdown yang rusak
+  // baru terlihat SETELAH tertempel di tiket, dan saat itu sudah terlambat.
+
+  function pad(n, width) {
+    var s = String(n);
+    while (s.length < width) s = '0' + s;
+    return s;
+  }
+
+  function formatTime(ts) {
+    var d = new Date(ts);
+    return pad(d.getHours(), 2) + ':' + pad(d.getMinutes(), 2) + ':' +
+           pad(d.getSeconds(), 2) + '.' + pad(d.getMilliseconds(), 3);
+  }
+
+  function formatBytes(n) {
+    if (n == null) return null;
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' kB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function tagFor(entry) {
+    if (entry.kind === 'network') return 'NET';
+    if (entry.kind === 'navigation') return 'PAGE';
+    if (entry.kind === 'error') return 'ERROR';
+    return String(entry.level || 'log').toUpperCase();
+  }
+
+  /** Satu baris teks datar. Dipakai pencarian, Copy as text, dan laporan. */
+  function entryToLine(entry) {
+    var time = formatTime(entry.t);
+    var tag = tagFor(entry);
+    if (entry.kind === 'network') {
+      var status = entry.failed ? 'FAILED' : String(entry.status);
+      var bits = [entry.method, status];
+      if (entry.durationMs != null) bits.push(entry.durationMs + ' ms');
+      var size = formatBytes(entry.sizeBytes);
+      if (size) bits.push(size);
+      bits.push(entry.url);
+      if (entry.failed && entry.statusText) bits.push('(' + entry.statusText + ')');
+      return '[' + time + '] ' + tag + ' ' + bits.join(' ');
+    }
+    return '[' + time + '] ' + tag + ' ' + String(entry.text || '');
+  }
+
+  /** Ringkasan isi baris tanpa timestamp, dipakai untuk mengelompokkan
+   *  entri identik yang berulang. Timestamp sengaja TIDAK ikut - kalau ikut,
+   *  tidak akan ada dua entri yang pernah dianggap sama. */
+  function entrySignature(entry) {
+    if (entry.kind === 'network') {
+      return 'n|' + entry.method + '|' + entry.status + '|' + (entry.failed ? 'f' : 'o') +
+             '|' + entry.url;
+    }
+    return entry.kind + '|' + entry.level + '|' + String(entry.text || '');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pembangun laporan
+  // ---------------------------------------------------------------------------
+
+  /** Satu sel tabel Markdown.
+   *
+   *  Dua hal WAJIB ditangani, dan keduanya merusak tabel secara senyap:
+   *  karakter `|` di dalam isi log akan memecah kolom, dan baris baru akan
+   *  mengakhiri baris tabel di tengah jalan. Stack trace mengandung keduanya. */
+  function mdCell(text, max) {
+    var s = String(text == null ? '' : text)
+      .replace(/\|/g, '\\|')
+      .replace(/\r?\n/g, ' ');
+    var limit = max || 200;
+    if (s.length > limit) s = s.slice(0, limit) + '...';
+    return s;
+  }
+
+  /** Sel tabel Jira. `|` memecah kolom sama seperti Markdown. Kurung kurawal
+   *  juga punya arti khusus di Jira, jadi diescape supaya isi log tidak
+   *  ditafsirkan sebagai makro. */
+  function jiraCell(text, max) {
+    var s = String(text == null ? '' : text)
+      .replace(/\|/g, '\\|')
+      .replace(/\{/g, '\\{')
+      .replace(/\r?\n/g, ' ');
+    var limit = max || 200;
+    if (s.length > limit) s = s.slice(0, limit) + '...';
+    return s;
+  }
+
+  /** Detail satu entri sebagai teks polos, dipakai di blok kode laporan. */
+  function entryDetail(entry) {
+    var lines = [];
+    if (entry.kind === 'network') {
+      lines.push('method   : ' + entry.method);
+      lines.push('url      : ' + entry.url);
+      lines.push('status   : ' + (entry.failed ? '0 (failed)' : entry.status + ' ' + (entry.statusText || '')));
+      lines.push('duration : ' + (entry.durationMs == null ? '-' : entry.durationMs + ' ms'));
+      lines.push('size     : ' + (formatBytes(entry.sizeBytes) || '- (no Content-Length)'));
+      lines.push('transport: ' + entry.transport);
+      var headers = entry.requestHeaders || {};
+      var names = Object.keys(headers);
+      if (names.length) {
+        lines.push('request headers:');
+        for (var i = 0; i < names.length; i++) {
+          lines.push('  ' + names[i] + ': ' + headers[names[i]]);
+        }
+      }
+      if (entry.requestBody) {
+        lines.push('request body:');
+        lines.push('  ' + String(entry.requestBody).split('\n').join('\n  '));
+      }
+    } else {
+      lines.push(String(entry.text || ''));
+      if (entry.stack) { lines.push(''); lines.push(entry.stack); }
+    }
+    if (entry.redacted > 0) {
+      lines.push('');
+      lines.push('(' + entry.redacted + ' value(s) replaced with ' + REDACTED_MARK + ')');
+    }
+    return lines.join('\n');
+  }
+
+  function hasDetail(entry) {
+    return entry.kind === 'network' || !!entry.stack;
+  }
+
+  /** Bangun laporan siap tempel.
+   *
+   *  KENAPA ADA. README bagian 2 menyebut masalah nomor dua yang mau
+   *  diselesaikan: "Menyalin bukti ke bug report itu lambat dan manual." Export
+   *  JSON bagus untuk arsip, tapi tidak ada yang menempelkan JSON mentah ke
+   *  tiket. README bagian 13 menempatkan ekspor siap tempel di v2.1.
+   *
+   *  @param {string} format 'json' | 'markdown' | 'jira' | 'text'
+   *  @param {object} meta   { url, title, tab, failedOnly, query, total, max, extraFields }
+   *  @param {Array}  entries entri yang sedang tampil
+   */
+  function buildReport(format, meta, entries) {
+    var info = meta || {};
+    var list = Array.isArray(entries) ? entries : [];
+    var redactionNote = 'ON - headers [' + REDACTED_HEADERS.join(', ') + '], fields [' +
+      FIELDS_SUBSTRING.concat(FIELDS_EXACT).concat(EXTRA_FIELDS).join(', ') + ']';
+
+    if (format === 'json') {
+      return JSON.stringify({
+        tool: 'Rapspect',
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        page: { url: info.url || '', title: info.title || '' },
+        redaction: {
+          enabled: true,
+          headers: REDACTED_HEADERS,
+          fields: FIELDS_SUBSTRING.concat(FIELDS_EXACT),
+          extraFields: EXTRA_FIELDS,
+          mark: REDACTED_MARK,
+          note: 'Response bodies are never captured. Review this file before sharing.'
+        },
+        bufferLimit: info.max || LIMITS.MAX_ENTRIES,
+        capturedCount: info.total || list.length,
+        exportedCount: list.length,
+        filters: { tab: info.tab || 'all', failedOnly: !!info.failedOnly, query: info.query || '' },
+        entries: list
+      }, null, 2);
+    }
+
+    if (format === 'text') {
+      var head = [
+        '# Rapspect capture',
+        '# page     : ' + (info.url || '-'),
+        '# title    : ' + (info.title || '-'),
+        '# exported : ' + new Date().toISOString(),
+        '# tab      : ' + (info.tab || 'all') + (info.failedOnly ? ' + failed only' : ''),
+        '# entries  : ' + list.length + ' of ' + (info.total || list.length) +
+          ' captured (buffer ' + (info.max || LIMITS.MAX_ENTRIES) + ')',
+        '# redaction: ' + redactionNote,
+        ''
+      ];
+      var plain = [];
+      for (var p = 0; p < list.length; p++) plain.push(entryToLine(list[p]));
+      return head.concat(plain).join('\n');
+    }
+
+    if (format === 'markdown') return buildMarkdown(info, list, redactionNote);
+    if (format === 'jira') return buildJira(info, list, redactionNote);
+    return buildReport('text', info, list);
+  }
+
+  function summaryOf(list) {
+    var counts = { error: 0, warn: 0, failed: 0 };
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].level === 'error') counts.error++;
+      if (list[i].level === 'warn') counts.warn++;
+      if (list[i].kind === 'network' && (list[i].failed || list[i].status >= 400)) counts.failed++;
+    }
+    return counts;
+  }
+
+  function buildMarkdown(info, list, redactionNote) {
+    var sum = summaryOf(list);
+    var out = [];
+
+    out.push('## Rapspect capture');
+    out.push('');
+    out.push('| Field | Value |');
+    out.push('| --- | --- |');
+    out.push('| Page | ' + mdCell(info.url || '-', 300) + ' |');
+    out.push('| Title | ' + mdCell(info.title || '-', 200) + ' |');
+    out.push('| Captured | ' + new Date().toISOString() + ' |');
+    out.push('| View | tab `' + mdCell(info.tab || 'all', 40) + '`' +
+             (info.failedOnly ? ', failed only' : '') +
+             (info.query ? ', search `' + mdCell(info.query, 60) + '`' : '') + ' |');
+    out.push('| Entries | ' + list.length + ' of ' + (info.total || list.length) +
+             ' captured (buffer ' + (info.max || LIMITS.MAX_ENTRIES) + ') |');
+    out.push('| Summary | ' + sum.error + ' error, ' + sum.warn + ' warning, ' +
+             sum.failed + ' failed request |');
+    out.push('| Redaction | ' + mdCell(redactionNote, 400) + ' |');
+    out.push('');
+
+    if (!list.length) {
+      out.push('_No entries in the current view._');
+      return out.join('\n');
+    }
+
+    out.push('### Log');
+    out.push('');
+    out.push('| Time | Type | Detail |');
+    out.push('| --- | --- | --- |');
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      var detail = e.kind === 'network'
+        ? '**' + e.method + ' ' + (e.failed ? 'FAILED' : e.status) + '** ' +
+          (e.durationMs != null ? e.durationMs + ' ms · ' : '') +
+          (formatBytes(e.sizeBytes) ? formatBytes(e.sizeBytes) + ' · ' : '') +
+          mdCell(e.url, 200)
+        : mdCell(e.text, 200);
+      var repeat = e.repeatCount > 1 ? ' _(×' + e.repeatCount + ')_' : '';
+      out.push('| `' + formatTime(e.t) + '` | `' + tagFor(e) + '` | ' + detail + repeat + ' |');
+    }
+    out.push('');
+
+    // Detail panjang dibungkus <details> supaya tiket tidak membengkak sampai
+    // tidak terbaca. GitHub, GitLab, dan Azure DevOps semuanya mendukungnya.
+    var withDetail = list.filter(hasDetail);
+    if (withDetail.length) {
+      out.push('<details>');
+      out.push('<summary>Request details and stack traces (' + withDetail.length + ')</summary>');
+      out.push('');
+      for (var j = 0; j < withDetail.length; j++) {
+        var d = withDetail[j];
+        out.push('**`' + formatTime(d.t) + '` ' + tagFor(d) + '**');
+        out.push('');
+        out.push('```');
+        out.push(entryDetail(d));
+        out.push('```');
+        out.push('');
+      }
+      out.push('</details>');
+      out.push('');
+    }
+
+    out.push('---');
+    out.push('');
+    out.push('_Captured with [Rapspect](https://github.com/AhmadHuseinAlatas/Rabspect). ' +
+             'Response bodies are never captured. Review before sharing._');
+    return out.join('\n');
+  }
+
+  function buildJira(info, list, redactionNote) {
+    var sum = summaryOf(list);
+    var out = [];
+
+    out.push('h2. Rapspect capture');
+    out.push('');
+    out.push('|| Field || Value ||');
+    out.push('| Page | ' + jiraCell(info.url || '-', 300) + ' |');
+    out.push('| Title | ' + jiraCell(info.title || '-', 200) + ' |');
+    out.push('| Captured | ' + new Date().toISOString() + ' |');
+    out.push('| View | tab ' + jiraCell(info.tab || 'all', 40) +
+             (info.failedOnly ? ', failed only' : '') +
+             (info.query ? ', search ' + jiraCell(info.query, 60) : '') + ' |');
+    out.push('| Entries | ' + list.length + ' of ' + (info.total || list.length) +
+             ' captured (buffer ' + (info.max || LIMITS.MAX_ENTRIES) + ') |');
+    out.push('| Summary | ' + sum.error + ' error, ' + sum.warn + ' warning, ' +
+             sum.failed + ' failed request |');
+    out.push('| Redaction | ' + jiraCell(redactionNote, 400) + ' |');
+    out.push('');
+
+    if (!list.length) {
+      out.push('_No entries in the current view._');
+      return out.join('\n');
+    }
+
+    out.push('h3. Log');
+    out.push('');
+    out.push('|| Time || Type || Detail ||');
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      var detail = e.kind === 'network'
+        ? '*' + e.method + ' ' + (e.failed ? 'FAILED' : e.status) + '* ' +
+          (e.durationMs != null ? e.durationMs + ' ms - ' : '') +
+          (formatBytes(e.sizeBytes) ? formatBytes(e.sizeBytes) + ' - ' : '') +
+          jiraCell(e.url, 200)
+        : jiraCell(e.text, 200);
+      var repeat = e.repeatCount > 1 ? ' (x' + e.repeatCount + ')' : '';
+      out.push('| ' + formatTime(e.t) + ' | ' + tagFor(e) + ' | ' + detail + repeat + ' |');
+    }
+    out.push('');
+
+    var withDetail = list.filter(hasDetail);
+    if (withDetail.length) {
+      out.push('h3. Request details and stack traces');
+      out.push('');
+      for (var j = 0; j < withDetail.length; j++) {
+        var d = withDetail[j];
+        out.push('*' + formatTime(d.t) + ' ' + tagFor(d) + '*');
+        // {noformat} dipilih, bukan {code}. {code} mencoba menebak bahasa dan
+        // bisa salah mewarnai stack trace; {noformat} menampilkan apa adanya.
+        out.push('{noformat}');
+        out.push(entryDetail(d));
+        out.push('{noformat}');
+        out.push('');
+      }
+    }
+
+    out.push('----');
+    out.push('_Captured with Rapspect. Response bodies are never captured. ' +
+             'Review before sharing._');
+    return out.join('\n');
+  }
+
+  // ---------------------------------------------------------------------------
   // API publik
   // ---------------------------------------------------------------------------
 
@@ -663,6 +1032,15 @@
     truncate: truncate,
     isSensitiveHeader: isSensitiveHeader,
     isSensitiveField: isSensitiveField,
+    setExtraFields: setExtraFields,
+    getExtraFields: getExtraFields,
+    formatTime: formatTime,
+    formatBytes: formatBytes,
+    tagFor: tagFor,
+    entryToLine: entryToLine,
+    entrySignature: entrySignature,
+    entryDetail: entryDetail,
+    buildReport: buildReport,
     redactHeaders: redactHeaders,
     redactUrl: redactUrl,
     redactBody: redactBody,
