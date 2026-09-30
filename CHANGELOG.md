@@ -8,21 +8,64 @@ phase. This file covers the code, in more detail, from v1.0.0 onward.
 
 ## [Unreleased]
 
-### Known issues
+### Fixed
 
-Three defects found by review, not yet fixed. Tracked in `docs/BACKLOG.md`.
+All three defects listed here previously are now closed.
 
-- **No scroll handling in the panel.** New entries arriving below the fold are
-  invisible — there is no tail-follow. When the 500-entry ring buffer starts
-  trimming from the front, rows are removed above the viewport while `scrollTop`
-  stays fixed, so the content jumps.
-- **Search rebuilds every haystack on each keystroke.** `passesCommon()` calls
-  `entryToLine()` per entry, and the tab counts run it across all seven lenses,
-  so a full buffer means roughly 4,000 string constructions per debounce tick.
-  Shows up as typing lag exactly when the buffer is large.
-- **Arrival animation misfires on tab switch.** `maxRenderedId` only advances
-  across filtered rows, so entries that arrived while another tab was selected
-  animate as new when you switch back.
+- **Scroll handling in the panel.** There was none at all. Two behaviours now,
+  and the distinction is the point: if you are at the bottom you are following
+  the stream, so the view stays pinned there as DevTools console does. If you are
+  reading higher up, your position is held — including compensating for rows the
+  ring buffer removes from above the viewport, which previously shifted the line
+  you were reading out from under the cursor. A `jump to latest` pill appears when
+  entries arrive below the fold, because otherwise nothing tells you they did.
+- **Search no longer rebuilds every haystack per keystroke.** `passesCommon()`
+  called `entryToLine()` per entry and the tab counts ran it across all seven
+  lenses, so a full buffer meant roughly 4,000 string constructions per debounce
+  tick. Now cached by entry id, pruned when the buffer trims and cleared on
+  snapshot. Safe to cache because entries are immutable once stored.
+- **Arrival animation no longer misfires on tab switch.** `maxRenderedId` only
+  advanced across filtered rows, so sitting on the Error tab while log entries
+  streamed in meant switching back to All animated dozens of old rows as new. The
+  threshold is now computed over all entries and passed into the row builder
+  rather than read from state that has already moved on.
+
+### Added
+
+- **Syntax colouring inside log rows**, with the constraint that made it
+  admissible under README section 5: it marks structure, not decoration. Two new
+  hues only, fully separate from the level palette, so "one colour, one meaning"
+  survives. File paths and URLs in one colour, `line:column` in another, stack
+  trace scaffolding (`at`, brackets) deliberately dimmed rather than coloured, and
+  error type names distinguished by weight because red already means level.
+  `selftest-contrast.js` now tests every syntax colour against every semantic
+  colour — nearest actual distance is 44 against a threshold of 25.
+- **`tools/selftest-highlight.js`** — 39 checks. The property under test is not
+  that colours are right but that tokenising never loses a character: a
+  miscoloured log is obvious, a log missing a digit from a line number is trusted
+  and wrong. It found two real bugs on first run: a bare `Error` never matched
+  because the pattern required a prefix, and `data:` could never match because it
+  has no `//`. Also covers markup passing through unchanged, since tokens are
+  written with `textContent` and the panel is an extension page with full
+  `chrome.*` access.
+- **`tools/selftest-structure.js` extended** to require the two new syntax tokens
+  in both themes.
+- **`.github/dependabot.yml`** — monthly updates for the two pinned GitHub
+  Actions. There are no application dependencies to watch; the workflow is the
+  only thing that can rot.
+
+### Changed
+
+- `core.tokenizeLog()` moved into `src/shared/rapspect-core.js`. It was written in
+  `panel.js` first, which made pure string logic impossible to test without a
+  browser. The panel now only translates tokens into DOM nodes.
+
+### Not done, and deliberately
+
+- **No per-token animation**, although it was requested. Moving text is harder to
+  read, and this is where README section 5's ban on decorative effects inside log
+  rows applies without needing interpretation. Motion went into the app skin
+  instead: the `jump to latest` pill slides in.
 
 ## [1.0.0] — 2026-09-30
 

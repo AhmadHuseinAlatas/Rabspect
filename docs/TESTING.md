@@ -48,9 +48,20 @@ kode di `src/shared/rapspect-core.js` atau token warna di `src/panel/panel.css`
 diubah.
 
 ```powershell
+node tools/selftest-structure.js
 node tools/selftest-redaction.js
 node tools/selftest-contrast.js
+node tools/selftest-highlight.js
 ```
+
+`selftest-structure.js` memeriksa sambungan proyek: path yang dirujuk manifest,
+daftar putih izin, setiap `getElementById` di `panel.js` yang harus punya
+elemennya di `panel.html`, dan bahwa keempat ikon benar-benar PNG. Yang
+diharapkan: `22 pemeriksaan, 0 gagal`.
+
+`selftest-highlight.js` memeriksa tokenisasi pewarnaan sintaks. Yang diuji bukan
+"warnanya benar" tapi "teksnya utuh": menggabungkan kembali seluruh token harus
+menghasilkan teks asli yang identik. Yang diharapkan: `39 pemeriksaan, 0 gagal`.
 
 `selftest-redaction.js` memeriksa 46 hal: header dan field yang wajib disensor,
 **dan** nama field biasa yang tidak boleh ikut tersensor (`shipping`, `pinned`,
@@ -352,6 +363,25 @@ Perilakunya **memang berbeda** antara popup dan side panel, dan itu bukan bug.
 | V-93 | Klik **Export JSON** lalu tekan `Escape` | Yang tertutup **dialognya**, bukan panelnya. Panel tetap terbuka |
 | V-94 | Lanjutan V-93: tekan `Escape` sekali lagi | Sekarang permukaannya yang tertutup |
 | V-95 | Dengan screen reader aktif, fokuskan tombol `×` | Dibacakan sebagai `Close Rapspect`, bukan sekadar "x" atau "times" |
+
+### 6.12 Gulir, pencarian, dan pewarnaan sintaks
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-96 | Isi panel sampai melebihi tinggi layar, gulir ke dasar, lalu picu log baru | Tampilan tetap menempel di dasar. Entri baru langsung terlihat tanpa menggulir |
+| V-97 | Gulir ke tengah daftar, lalu picu log baru | Posisi baca **tidak bergeser**. Muncul tombol mengapung di bawah bertuliskan `N new entries` |
+| V-98 | Klik tombol mengapung itu | Melompat ke dasar, tombolnya hilang |
+| V-99 | Gulir sendiri ke dasar tanpa mengklik tombol | Tombolnya hilang sendiri dan hitungannya lupa, tidak menumpuk dari sebelumnya |
+| V-100 | Klik **Run all scenarios** 40 kali sampai hitungan mencapai 500, sambil membaca baris di tengah | Baris yang sedang dibaca tetap di tempatnya walaupun ring buffer membuang baris dari atas |
+| V-101 | Dengan 500 entri, ketik perlahan di kotak Search | Tidak ada lag mengetik. Sebelum perbaikan, satu ketikan memicu sekitar 4.000 pembangunan string |
+| V-102 | Klik **console.error** di halaman uji, buka `details` | Nama tipe `Error` **tebal**. Kata `at` dan tanda kurung lebih redup daripada teks sekitarnya |
+| V-103 | Pada stack trace yang sama, perhatikan path file | Path berwarna violet. Angka `:27:27075` di ujungnya berwarna berbeda dari path-nya |
+| V-104 | Bandingkan warna violet path dengan warna teal level `Info` | Jelas dua warna berbeda. Ini yang menjaga aturan satu warna satu makna |
+| V-105 | Klik **POST with fake Authorization**, buka `details` | `[REDACTED]` berwarna kuning dan tebal, menonjol di antara header lain |
+| V-106 | Periksa baris `NET` | URL-nya diwarnai sama seperti path di stack trace — "ini sebuah lokasi" berarti hal yang sama di mana pun muncul |
+| V-107 | Baca isi pesan log biasa, misalnya `T-01 plain log...` | Teks pesannya **tidak** diwarnai. Hanya bagian berstruktur yang berwarna; sisanya warna teks normal |
+| V-108 | Ganti ke light mode, ulangi V-102 sampai V-107 | Semua bagian tetap terbaca. Violet jadi lebih gelap, angka jadi olive |
+| V-109 | Jalankan `node tools/selftest-highlight.js` | `39 pemeriksaan, 0 gagal` |
 
 ---
 

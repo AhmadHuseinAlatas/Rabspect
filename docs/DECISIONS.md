@@ -446,6 +446,95 @@ keduanya punya tombol tutup. Itu memakan sekitar 38px ruang vertikal di panel
 yang memang sempit. Meringkasnya berarti header berbeda antar permukaan, dan itu
 keputusan tampilan yang perlu persetujuan pemilik produk lebih dulu.
 
+### 2.6c Pewarnaan sintaks di area data, dan kenapa ini bukan pelanggaran
+
+**Apa yang diminta.** Isi log diwarnai seperti di VS Code, supaya tidak terlalu
+plain.
+
+**Pertentangan dengan README, disebut lebih dulu.** README bagian 5 punya tabel
+Boleh/Jangan, dan di kolom **Jangan** tertulis persis *"Efek dekoratif di dalam
+baris log"*, dengan aturan induk *"Area data harus membosankan dan sangat
+terbaca."* README bagian 6 aturan 2 menambah *"Satu warna, satu makna... tidak
+ada pengecualian."*
+
+**Kenapa tetap dikerjakan.** Kata kuncinya **dekoratif**. Pewarnaan yang menandai
+struktur bukan hiasan — dia menjawab pertanyaan yang memang dicari mata saat
+membaca stack trace: file mana, baris berapa, frame ini milik halaman atau milik
+extension lain. Tujuan yang ditulis README sendiri adalah *"pengguna harus bisa
+memindai status 404 dalam sepersekian detik"*. Struktur yang terlihat melayani
+tujuan itu; yang dilarang adalah hiasan yang tidak membawa informasi.
+
+**Aturan "satu warna satu makna" ditegakkan, bukan dilonggarkan.** Ini bagian yang
+paling mudah dirusak. Kalau URL diwarnai teal, maka di dalam satu baris log teal
+berarti dua hal: level info **dan** sebuah lokasi. Karena itu:
+
+- palet sintaks **terpisah penuh** dari warna level. Tidak ada satu token level
+  yang dipakai ulang
+- hanya **dua** hue baru, bukan palet penuh gaya editor
+
+| Token | Dark | Light | Kontras terburuk | Jarak terdekat ke warna semantik |
+|---|---|---|---|---|
+| `--rp-syn-url` | `#C9A0F5` | `#6B3FA0` | 5.97:1 / 6.63:1 | 58 |
+| `--rp-syn-num` | `#E8C68F` | `#5F6B00` | 7.83:1 / 5.26:1 | 44 |
+
+`--rp-syn-num` di dark mode **adalah** `--rp-sand` dari logo, jadi satu dari dua
+hue baru itu sebenarnya sudah ada di palet brand.
+
+Di light mode angka memakai olive, bukan coklat keemasan yang lebih dekat ke sand.
+Coklat keemasan hanya berjarak 34 dari `--rp-warn` `#8A6100` dan akan terlihat
+mirip; olive berjarak 44. Ini pelajaran yang sama dengan bagian 1.6 — **jarak
+menang atas kemiripan hue antar tema.**
+
+`tools/selftest-contrast.js` sekarang menguji setiap warna sintaks terhadap
+**setiap** warna semantik, bukan sebagian. Jarak terdekat yang sebenarnya 44,
+ambangnya 25. Pemeriksaan kontras tidak akan pernah menangkap tabrakan semacam
+ini: dua warna bisa lolos 4.5:1 dengan nyaman dan tetap salah.
+
+**Yang justru diredupkan, bukan diwarnai.** Kerangka stack trace — kata `at`,
+tanda kurung, titik — memakai `--rp-text-muted`. Ini yang membuat lokasi file
+menonjol tanpa menambah hue: menaikkan yang penting dilakukan dengan menurunkan
+yang tidak penting.
+
+Nama tipe error (`Error`, `TypeError`, `DOMException`) dibedakan dengan
+**ketebalan huruf**, bukan warna. Merah sudah dipakai untuk level error di badge
+dan garis tepi; memakainya lagi untuk nama tipe akan membuat merah berarti dua
+hal, dan memakai warna lain akan membingungkan.
+
+**Tidak ada animasi per token.** Diminta, tapi tidak dikerjakan, dan ini satu-
+satunya bagian permintaan yang saya tolak. Teks yang bergerak lebih sulit dibaca,
+dan di sinilah larangan README bagian 5 benar-benar berlaku tanpa tafsir. Animasi
+yang ditambahkan justru di kulit: tombol `jump to latest` yang meluncur masuk.
+
+**Tokenizer dipindah ke `rapspect-core.js`.** Awalnya saya tulis di `panel.js`,
+lalu sadar logika string murni itu jadi tidak bisa diuji tanpa browser. Sekarang
+`core.tokenizeLog(text)` mengembalikan deretan `{t, v}` dan `panel.js` hanya
+menerjemahkannya menjadi node DOM.
+
+Jaminan yang diuji **bukan** "warnanya benar", tapi **teksnya utuh**: menggabungkan
+kembali seluruh token harus menghasilkan masukan yang identik. Untuk alat
+forensik, tokenizer yang menelan satu karakter jauh lebih berbahaya daripada yang
+tidak mewarnai apa pun — log salah warna langsung kelihatan, log yang kehilangan
+satu digit dari nomor baris akan dipercaya apa adanya.
+
+`tools/selftest-highlight.js` menjalankan 39 pemeriksaan dan **langsung menemukan
+dua bug yang lolos dari mata saya**:
+
+1. Pola `[A-Z][A-Za-z]*(?:Error|Exception)` menuntut ada awalan sebelum `Error`,
+   jadi `TypeError` cocok tapi **`Error` sendirian tidak pernah cocok** — padahal
+   itu bentuk paling umum di stack trace. Awalannya kini opsional.
+2. `data:` masuk daftar skema URL padahal tidak memakai `//`, jadi secara
+   struktural tidak mungkin dikenali. Dihapus dengan sadar: isi data URI di log
+   hampir selalu base64 raksasa yang tidak membawa informasi untuk dipindai.
+   Sekalian ditemukan bahwa `blob:https://...` terbelah dua karena kecocokan mulai
+   dari `https://`; prefiks `blob:` kini ikut.
+
+**Keamanan.** Setiap token ditulis dengan `textContent`, tidak pernah
+`innerHTML`. Teks ini berasal dari halaman yang sedang diuji, dan panel Rapspect
+adalah halaman extension dengan akses penuh ke `chrome.*` — memasukkannya sebagai
+HTML akan menjadikan panel target injeksi dari halaman mana pun yang dibuka QA.
+Ada pemeriksaan khusus untuk ini: teks berisi `<script>` dan `onerror=` harus
+keluar dari tokenizer tanpa berubah satu karakter pun.
+
 ### 2.7 Tab per level: lensa, bukan tujuh laporan
 
 **Apa yang diminta.** Menu terpisah untuk error, warn, info, log, dan debug,
