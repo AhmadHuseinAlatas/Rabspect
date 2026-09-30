@@ -55,6 +55,9 @@
     modalFields:  document.getElementById('rp-modal-fields'),
     modalCancel:  document.getElementById('rp-modal-cancel'),
     modalConfirm: document.getElementById('rp-modal-confirm'),
+    main:         document.getElementById('rp-main'),
+    jump:         document.getElementById('rp-jump'),
+    jumpText:     document.getElementById('rp-jump-text'),
     openPanel:    document.getElementById('rp-open-panel'),
     close:        document.getElementById('rp-close'),
     closeHint:    document.getElementById('rp-close-hint'),
@@ -90,8 +93,35 @@
     maxRenderedId: 0,
     primed: false,
     // Hitungan per tab pada render sebelumnya, untuk mendeteksi kenaikan.
-    prevCounts: {}
+    prevCounts: {},
+    // Jumlah entri baru yang tiba sementara pengguna sedang membaca bagian atas
+    // daftar. Dipakai tombol "jump to latest".
+    pendingBelow: 0
   };
+
+  /** Cache teks pencarian per id entri.
+   *
+   *  KENAPA PERLU. `passesCommon()` membangun ulang teks pencarian dengan
+   *  `entryToLine()` setiap kali dipanggil, dan `countsByScope()` memanggilnya
+   *  untuk KETUJUH lensa. Dengan buffer penuh, satu ketikan berarti sekitar
+   *  4.000 pembangunan string - masing-masing memformat timestamp dan
+   *  menggabungkan field. Hasilnya lag mengetik yang muncul justru saat buffer
+   *  besar, yaitu saat pencarian paling dibutuhkan.
+   *
+   *  Aman di-cache karena entri tidak pernah berubah setelah masuk buffer:
+   *  service worker mengirim salinan yang sudah disanitasi dan panel tidak
+   *  menyuntingnya. */
+  var searchCache = new Map();
+
+  function haystackFor(entry) {
+    var cached = searchCache.get(entry.id);
+    if (cached !== undefined) return cached;
+    var text = entryToLine(entry);
+    if (entry.requestBody) text += ' ' + entry.requestBody;
+    text = text.toLowerCase();
+    searchCache.set(entry.id, text);
+    return text;
+  }
 
   // ---------------------------------------------------------------------------
   // Halaman yang tidak bisa diakses extension
@@ -237,6 +267,51 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Pewarnaan sintaks
+  // ---------------------------------------------------------------------------
+
+  /** Peta tipe token dari core ke nama kelas CSS. Token bertipe 'plain' tidak
+   *  ada di sini dengan sengaja: dia ditulis sebagai text node tanpa span, jadi
+   *  mayoritas isi log tetap teks biasa berwarna default. */
+  var TOKEN_CLASS = {
+    url:      'rp-syn-url',
+    num:      'rp-syn-num',
+    type:     'rp-syn-type',
+    kw:       'rp-syn-kw',
+    redacted: 'rp-syn-redacted'
+  };
+
+  /** Tulis teks ke dalam container dengan bagian berstrukturnya diwarnai.
+   *
+   *  Tokenisasinya ada di rapspect-core.js supaya bisa diuji tanpa browser;
+   *  fungsi ini hanya menerjemahkan token menjadi node DOM.
+   *
+   *  SELALU textContent, NIHIL innerHTML. Teks ini berasal dari halaman yang
+   *  sedang diuji. Memasukkannya sebagai HTML akan menjadikan panel Rapspect
+   *  target injeksi dari halaman mana pun yang dibuka QA - dan panel ini adalah
+   *  halaman extension dengan akses penuh ke chrome.*. */
+  function appendHighlighted(container, rawText) {
+    var tokens = core.tokenizeLog(rawText);
+    for (var i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      var cls = TOKEN_CLASS[token.t];
+      if (!cls) {
+        container.appendChild(document.createTextNode(token.v));
+        continue;
+      }
+      var node = document.createElement('span');
+      node.className = cls;
+      node.textContent = token.v;
+      container.appendChild(node);
+    }
+  }
+
+  /** Dipakai untuk URL network yang sudah berdiri sendiri sebagai satu nilai. */
+  function appendUrlToken(container, url) {
+    appendHighlighted(container, url);
+  }
+
+  // ---------------------------------------------------------------------------
   // Filter
   // ---------------------------------------------------------------------------
 
@@ -262,11 +337,7 @@
       if (entry.kind !== 'network') return false;
       if (!(entry.failed || entry.status >= 400)) return false;
     }
-    if (state.query) {
-      var haystack = entryToLine(entry);
-      if (entry.requestBody) haystack += ' ' + entry.requestBody;
-      if (haystack.toLowerCase().indexOf(state.query) === -1) return false;
-    }
+    if (state.query && haystackFor(entry).indexOf(state.query) === -1) return false;
     return true;
   }
 
@@ -384,11 +455,76 @@
     el.netHint.hidden = true;
   }
 
+  /** Rekam posisi gulir SEBELUM isi daftar diganti.
+   *
+   *  Ambang 24px untuk "di dasar" bukan nol: dengan pembulatan subpiksel dan
+   *  zoom browser, scrollTop nyaris tidak pernah sama persis dengan
+   *  scrollHeight - clientHeight, jadi perbandingan ketat akan gagal terus. */
+  function captureScroll() {
+    var m = el.main;
+    return {
+      top: m.scrollTop,
+      height: m.scrollHeight,
+      atBottom: (m.scrollHeight - m.scrollTop - m.clientHeight) <= 24
+    };
+  }
+
+  /** Pulihkan posisi gulir setelah isi daftar diganti.
+   *
+   *  DUA PERILAKU YANG BERBEDA, dan membedakannya yang penting:
+   *
+   *  Kalau pengguna sedang di dasar, dia sedang MENGIKUTI aliran log - seperti
+   *  tab Console DevTools. Tetap tempel di dasar supaya entri baru terlihat.
+   *
+   *  Kalau dia sedang membaca di tengah, posisinya tidak boleh bergeser. Yang
+   *  rumit: ring buffer membuang baris dari ATAS saat penuh, jadi tinggi konten
+   *  menyusut dan baris yang sedang dibaca bergerak naik di bawah kursor.
+   *  Selisih tinggi dipakai untuk mengoreksinya. */
+  function restoreScroll(before) {
+    var m = el.main;
+    if (before.atBottom) {
+      m.scrollTop = m.scrollHeight;
+      return;
+    }
+    var delta = m.scrollHeight - before.height;
+    // delta negatif berarti ada konten yang dibuang. Selama yang dibuang berada
+    // di atas viewport - dan ring buffer memang selalu membuang dari depan -
+    // menambahkan delta membuat baris yang sedang dibaca tetap di tempatnya.
+    m.scrollTop = delta < 0 ? Math.max(0, before.top + delta) : before.top;
+  }
+
+  function showJump(count) {
+    if (count <= 0) { hideJump(); return; }
+    el.jumpText.textContent = count === 1 ? '1 new entry' : count + ' new entries';
+    el.jump.hidden = false;
+  }
+
+  function hideJump() {
+    state.pendingBelow = 0;
+    el.jump.hidden = true;
+  }
+
   function render() {
     renderCounts();
 
+    // Ambang animasi dikunci SEBELUM state diperbarui, dan dihitung dari
+    // SELURUH entri, bukan hanya yang lolos filter.
+    //
+    // Versi sebelumnya hanya memajukan maxRenderedId sepanjang baris yang
+    // tampil. Akibatnya: duduk di tab Error sementara entri log terus masuk,
+    // maxRenderedId tidak pernah melewati entri-entri itu, lalu berpindah ke tab
+    // All membuat puluhan baris lama ikut beranimasi seolah baru datang.
+    var animateAbove = state.primed ? state.maxRenderedId : Infinity;
+    var globalMax = state.maxRenderedId;
+    for (var g = 0; g < state.entries.length; g++) {
+      if (state.entries[g].id > globalMax) globalMax = state.entries[g].id;
+    }
+    state.maxRenderedId = globalMax;
+    state.primed = true;
+
     // ---- keadaan 1: halaman tidak bisa diakses extension ----
     if (state.blockedReason) {
+      hideJump();
       hideAllNotices();
       el.blockedText.textContent = state.blockedReason;
       el.blocked.hidden = false;
@@ -408,6 +544,7 @@
 
     // ---- keadaan 2: belum ada data sama sekali ----
     if (!state.entries.length) {
+      hideJump();
       hideAllNotices();
       el.empty.hidden = false;
       el.list.textContent = '';
@@ -421,6 +558,7 @@
     // sedangkan "tertangkap tapi tersaring" menyuruh pengguna mengubah filter.
     // Menyamakan keduanya mengirim pengguna ke arah yang salah.
     if (!filtered.length) {
+      hideJump();
       hideAllNotices();
       el.nomatchTitle.textContent = state.entries.length +
         (state.entries.length === 1 ? ' entry captured, ' : ' entries captured, ') +
@@ -448,35 +586,47 @@
     // ---- keadaan 4: ada yang bisa ditampilkan ----
     hideAllNotices();
 
+    // Posisi gulir direkam sebelum DOM diganti. Sebelum ini ada, tidak ada
+    // penanganan gulir sama sekali: entri baru tiba di bawah lipatan tanpa
+    // pemberitahuan, dan pemangkasan ring buffer menggeser baris yang sedang
+    // dibaca.
+    var before = captureScroll();
+
     var frag = document.createDocumentFragment();
-    var highestId = state.maxRenderedId;
+    var arrived = 0;
     for (var j = 0; j < filtered.length; j++) {
-      frag.appendChild(buildEntryNode(filtered[j]));
-      if (filtered[j].id > highestId) highestId = filtered[j].id;
+      if (filtered[j].id > animateAbove) arrived++;
+      frag.appendChild(buildEntryNode(filtered[j], animateAbove));
     }
 
     // Satu penggantian isi, bukan menambah node satu per satu ke DOM hidup.
     el.list.textContent = '';
     el.list.appendChild(frag);
 
-    // Render pertama TIDAK dianimasikan. Tanpa penjaga ini, membuka panel pada
-    // halaman yang sudah punya 500 entri akan menjalankan 500 animasi sekaligus.
-    state.maxRenderedId = highestId;
-    state.primed = true;
+    restoreScroll(before);
+
+    // Tombol "jump to latest" hanya berarti kalau pengguna TIDAK sedang di dasar.
+    // Kalau dia di dasar, entri barunya sudah terlihat.
+    if (before.atBottom) {
+      hideJump();
+    } else if (arrived > 0) {
+      state.pendingBelow += arrived;
+      showJump(state.pendingBelow);
+    }
 
     el.count.textContent = filtered.length + ' shown / ' + state.entries.length +
                            ' captured (buffer ' + state.max + ')';
   }
 
-  function buildEntryNode(entry) {
+  function buildEntryNode(entry, animateAbove) {
     var wrap = document.createElement('div');
     var classes = 'rp-entry';
     if (entry.kind === 'navigation') classes += ' rp-entry--navigation';
-    // Isyarat kedatangan hanya untuk baris yang benar-benar baru, dan hanya
-    // setelah render pertama. Tanpa dua syarat itu seluruh daftar akan berkedip
-    // setiap kali ada batch masuk, dan itu justru melanggar aturan README
-    // bagian 5 tentang area data yang harus tenang.
-    if (state.primed && entry.id > state.maxRenderedId) classes += ' rp-entry--new';
+    // Isyarat kedatangan hanya untuk baris yang benar-benar baru. Ambangnya
+    // diterima sebagai argumen, bukan dibaca dari state, karena state sudah
+    // diperbarui ke nilai terbaru di awal render() - membacanya di sini akan
+    // selalu menghasilkan false.
+    if (entry.id > animateAbove) classes += ' rp-entry--new';
     wrap.className = classes;
     wrap.setAttribute('data-level', entry.level);
     wrap.setAttribute('role', 'listitem');
@@ -516,7 +666,9 @@
         var details = document.createElement('div');
         details.className = 'rp-details';
         var pre = document.createElement('pre');
-        pre.textContent = detailsText(entry);
+        // Di sinilah pewarnaan paling terasa: blok detail berisi stack trace
+        // penuh, dan itu bentuk teks yang paling sulit dipindai tanpa struktur.
+        appendHighlighted(pre, detailsText(entry));
         details.appendChild(pre);
         wrap.appendChild(details);
       }
@@ -529,7 +681,7 @@
    *  (README bagian 6) tetap aman. */
   function fillMessage(container, entry) {
     if (entry.kind !== 'network') {
-      container.textContent = String(entry.text || '');
+      appendHighlighted(container, entry.text);
       return;
     }
     var method = document.createElement('span');
@@ -548,13 +700,12 @@
     if (size) bits.push(size);
     meta.textContent = bits.length ? bits.join(' \u00b7 ') + ' \u00b7 ' : '';
 
-    var url = document.createElement('span');
-    url.textContent = entry.url;
-
     container.appendChild(method);
     container.appendChild(status);
     container.appendChild(meta);
-    container.appendChild(url);
+    // URL diwarnai dengan token yang sama seperti di stack trace, jadi "ini
+    // sebuah lokasi" berarti hal yang sama di mana pun ia muncul.
+    appendUrlToken(container, entry.url);
 
     if (entry.redacted > 0) {
       var flag = document.createElement('span');
@@ -592,6 +743,18 @@
     }
     state.entries = (res && Array.isArray(res.entries)) ? res.entries : [];
     if (res && typeof res.max === 'number') state.max = res.max;
+
+    // Snapshot berarti seluruh isi berganti - biasanya karena pengguna pindah
+    // tab. Dua hal harus di-reset:
+    //  - cache pencarian, karena entrinya tidak lagi ada di daftar
+    //  - penanda primed, supaya render pertama untuk tab baru tidak
+    //    menganimasikan ratusan baris sekaligus hanya karena id-nya lebih tinggi
+    //    daripada yang pernah dirender di tab sebelumnya
+    searchCache.clear();
+    state.primed = false;
+    state.maxRenderedId = 0;
+    hideJump();
+
     render();
   }
 
@@ -633,7 +796,11 @@
     // Panel menegakkan batas yang sama dengan service worker, supaya keduanya
     // tidak pernah berbeda isi.
     if (state.entries.length > state.max) {
-      state.entries.splice(0, state.entries.length - state.max);
+      var dropped = state.entries.splice(0, state.entries.length - state.max);
+      // Cache pencarian dibersihkan bersama entrinya. Tanpa ini, id terus
+      // bertambah sepanjang sesi dan Map-nya tumbuh tanpa batas untuk entri yang
+      // sudah tidak pernah dilihat lagi.
+      for (var d = 0; d < dropped.length; d++) searchCache.delete(dropped[d].id);
     }
     scheduleRender();
   });
@@ -657,6 +824,8 @@
 
   async function doClear() {
     state.expanded = {};
+    searchCache.clear();
+    hideJump();
     await ask({ type: 'rp:clear', tabId: state.tabId });
     state.entries = [];
     render();
@@ -789,6 +958,19 @@
   // ---------------------------------------------------------------------------
   // Binding event
   // ---------------------------------------------------------------------------
+
+  el.jump.addEventListener('click', function () {
+    el.main.scrollTop = el.main.scrollHeight;
+    hideJump();
+  });
+
+  // Begitu pengguna menggulir sendiri sampai dasar, tombolnya tidak relevan lagi
+  // dan hitungannya harus dilupakan - kalau tidak, angkanya akan terus menumpuk
+  // dari kunjungan sebelumnya.
+  el.main.addEventListener('scroll', function () {
+    var m = el.main;
+    if ((m.scrollHeight - m.scrollTop - m.clientHeight) <= 24) hideJump();
+  }, { passive: true });
 
   el.theme.addEventListener('click', toggleTheme);
   el.reset.addEventListener('click', resetFilters);
