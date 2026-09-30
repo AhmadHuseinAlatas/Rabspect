@@ -221,6 +221,12 @@ menegakkannya. Sekarang ada.
 
 ### 2.2 Keputusan
 
+> **REVISI 2026-09-30.** Tempat UI berubah dari side panel menjadi **popup
+> toolbar**, atas permintaan pemilik produk, dengan side panel tetap tersedia.
+> Alasan lengkap dan harganya ada di bagian 2.6. Bagian 2.2 sampai 2.5 di bawah
+> tetap ditulis apa adanya sebagai catatan keputusan awal, bukan dihapus —
+> menghapusnya akan menghilangkan jejak audit yang justru jadi guna dokumen ini.
+
 **Penangkap data: monkey-patch di MAIN world.**
 Satu content script di `world: "MAIN"`, `run_at: "document_start"`, menambal
 `console.*`, `fetch`, `XMLHttpRequest.prototype`, ditambah listener `error` dan
@@ -334,6 +340,159 @@ diturunkan dari syarat di README bagian 3)
 Harga side panel: butuh Chrome 114+ dan lebarnya terbatas (kira-kira 300–500px),
 jadi tabel harus dirancang sempit. Karena itu URL panjang dipotong di tengah dan
 detail dibuka lewat expand baris, bukan kolom tambahan.
+
+### 2.6 Revisi: popup toolbar jadi muka utama, side panel tetap ada
+
+Keputusan ini **membatalkan** pilihan di bagian 2.2 dan 2.5. Dicatat sebagai
+revisi, bukan diam-diam ditimpa.
+
+**Apa yang diminta.** Rapspect muncul sebagai kotak yang menggantung dari ikon
+toolbar, seperti FuseBase Troubleshooter.
+
+**Apakah ini melanggar README.** Tidak. README bagian 12 masih menandai tempat UI
+sebagai open question dan menyebut popup sebagai salah satu opsi yang sah:
+"Tempat UI: side panel (`chrome.sidePanel`), DevTools panel, atau popup?".
+Yang dibatalkan adalah kesimpulan saya di bagian 2.5, bukan aturan README.
+Keputusan atas open question memang milik pemilik produk.
+
+**Harganya, dan ini nyata.** Popup **tertutup begitu halaman diklik**. Untuk alur
+kerja di README bagian 2 — QA yang mengklik-klik halaman sambil mengawasi error —
+itu kehilangan yang serius. Ini persis alasan popup ditolak di bagian 2.5.
+
+**Cara menutup kekurangannya.** Kedua permukaan dipertahankan:
+
+| Permukaan | Cara membuka | Untuk apa |
+|---|---|---|
+| Popup | klik ikon toolbar | pemeriksaan cepat: lihat error terakhir, salin, tutup |
+| Side panel | tombol `Open side panel` di dalam popup, atau menu side panel Chrome | sesi panjang: tetap terbuka sambil halaman diklik |
+
+**Satu dokumen untuk dua permukaan.** `panel.html` dipakai keduanya:
+
+```
+manifest: action.default_popup    = src/panel/panel.html?surface=popup
+manifest: side_panel.default_path = src/panel/panel.html
+```
+
+Isi UI-nya sama persis; yang berbeda hanya ukuran dan satu tombol. Menyalin
+markup ke dua file berarti setiap perbaikan dikerjakan dua kali, dan cepat atau
+lambat salah satunya ketinggalan. Pembedanya dibaca dari query string oleh
+`panel.js`, lalu ditulis ke atribut `data-surface` pada `<html>` supaya CSS bisa
+menanganinya. CSS tidak bisa membaca query string, dan CSP MV3 melarang script
+inline yang bisa menuliskannya lebih awal di `<head>` — jadi baris pertama
+`panel.js` adalah kesempatan paling awal yang tersedia. Konsekuensinya ada satu
+frame sebelum ukuran popup diterapkan; itu tidak terlihat dalam praktik.
+
+**Yang ikut berubah.**
+
+- `minimum_chrome_version` naik dari 114 ke **116**, karena
+  `chrome.sidePanel.open()` yang dipakai tombol itu baru ada di 116. Menaikkannya
+  membuat Chrome lama menolak dengan pesan versi yang jelas, bukan gagal
+  misterius saat tombol diklik
+- `setPanelBehavior({ openPanelOnActionClick: ... })` sekarang disetel **false**
+  secara eksplisit. Sejak `default_popup` ada, Chrome mengabaikan setelan ini —
+  tapi nilainya **bertahan di profil pengguna**, jadi siapa pun yang sudah pernah
+  memasang versi sebelumnya masih menyimpan `true`. Meninggalkannya begitu saja
+  membuat perilaku ikon berbeda antar mesin tanpa sebab yang terlihat
+- listener `chrome.action.onClicked` **dihapus**, tidak disimpan sebagai jaring
+  pengaman. Dengan `default_popup` terpasang Chrome tidak pernah memicunya, jadi
+  itu hanya akan jadi kode mati yang menyesatkan pembaca berikutnya
+
+### 2.7 Tab per level: lensa, bukan tujuh laporan
+
+**Apa yang diminta.** Menu terpisah untuk error, warn, info, log, dan debug,
+"jangan dalam satu laporan".
+
+**Di sini ada pertentangan dengan README, dan tidak saya diamkan.** README
+bagian 2 menyebut masalah nomor tiga yang mau diselesaikan: "Informasi tersebar
+di dua tab. Error console dan request yang gagal sering berkaitan, tapi harus
+dilihat bergantian." README bagian 3 meminta semuanya "dalam satu panel yang
+sama". Memecah tiap level menjadi laporan terpisah membangun ulang persis masalah
+yang jadi alasan produk ini ada.
+
+**Jalan tengah yang diambil.** Tab dibuat sebagai **lensa ke satu aliran yang
+sama**, bukan tujuh penyimpanan terpisah:
+
+- `All` tetap default dan tetap gabungan, jadi hubungan antara error console dan
+  request gagal tetap terlihat berurutan
+- tab lain hanya mempersempit tampilan. Datanya satu, ring buffer-nya satu
+- tiap tab membawa **hitungan**, sehingga pemisahan yang diminta tercapai tanpa
+  harus berpindah tab dulu untuk tahu ada isinya atau tidak
+- satu klik untuk memisahkan, satu klik untuk kembali menggabungkan
+
+Kalau yang kamu maksud benar-benar tujuh laporan terpisah tanpa tampilan
+gabungan, itu perlu koreksi README bagian 2 dan 3 lebih dulu, dan saya tidak
+mengubah README.
+
+**Detail perilaku yang perlu dicatat.** Pembatas navigasi (`PAGE`) hanya muncul
+di tab `All`. Secara teknis levelnya `info`, tapi menampilkannya di tab Info
+membuat tab itu tercampur hal yang bukan pesan aplikasi. Di `All` dia tetap
+penting sebagai penanda urutan kejadian.
+
+Hitungan tiap tab dihitung dengan aturan yang **sama persis** seperti isi tab itu
+saat dibuka — termasuk pencarian dan `Failed only` yang sedang aktif. Hitungan
+yang tidak cocok dengan isinya lebih buruk daripada tidak ada hitungan.
+
+### 2.8 Tab Network, dan kenapa isinya lebih sedikit daripada DevTools
+
+Pertanyaan yang muncul saat dipakai: DevTools Network menampilkan puluhan baris,
+Rapspect kosong. Ini bukan bug, tapi sebelumnya tidak ada apa pun di UI yang
+menjelaskannya — dan itu bug tersendiri.
+
+Penyebabnya ada di bagian 6: Rapspect menambal `fetch` dan `XMLHttpRequest`.
+Stylesheet, gambar, script, font, dan navigasi dimuat oleh browser sendiri dan
+tidak pernah melewati keduanya. Pada contoh nyata yang diperiksa, seluruh baris
+di DevTools bertipe `stylesheet` dan `text/css` kecuali satu yang bertipe `fetch`.
+
+Dua hal ditambahkan:
+
+1. **Tab `Network`.** Sebelumnya tidak ada cara meminta "tampilkan request saja".
+   Lebih buruk lagi, baris network dipetakan ke level `info`/`warn`/`error`, jadi
+   ikut hilang begitu level itu disaring — pengguna bisa menyimpulkan network
+   tidak tertangkap padahal hanya tersembunyi.
+2. **Keterangan di dalam tab itu** saat kosong, menyebut bahwa hanya `fetch()` dan
+   `XMLHttpRequest` yang ditangkap. Menjelaskan di tempat kebingungan muncul,
+   bukan di dokumen yang harus dicari lebih dulu.
+
+### 2.9 Animasi: hanya di kulit aplikasi
+
+README bagian 5 melarang dua hal secara eksplisit: "Maskot beranimasi
+terus-menerus" dan "Efek dekoratif di dalam baris log". Jadi animasi ditempatkan
+begini:
+
+| Dianimasikan | Apa | Kenapa boleh |
+|---|---|---|
+| ya | popup/panel saat dibuka: fade + geser 4px | kulit aplikasi |
+| ya | garis penanda tab: `scaleX` | kulit aplikasi. Memakai `transform`, bukan `width`, supaya tidak memicu layout ulang tiap frame |
+| ya | hitungan tab saat **naik**: satu denyut | kulit aplikasi. Hanya saat naik — turun karena pengguna mengubah filter bukan kabar baru |
+| ya | tombol saat ditekan: `scale(0.97)` | umpan balik, bukan hiasan |
+| ya | notice dan modal: fade + geser | kulit aplikasi |
+| **batas** | baris log baru: fade 140ms | ini **di dalam** area data, jadi perlu dibenarkan. Fungsinya menandai data yang baru tiba, bukan menghias. Dua penjaga dipasang: hanya baris dengan id lebih tinggi dari yang pernah dirender, dan tidak pada render pertama — tanpa keduanya, membuka panel pada halaman dengan 500 entri akan menjalankan 500 animasi sekaligus |
+| tidak | baris log yang sudah ada, badge level, isi detail | area data harus tenang |
+
+Seluruh animasi dan transisi **dimatikan total** — bukan dipercepat — kalau
+sistem meminta `prefers-reduced-motion: reduce`.
+
+Durasi dikumpulkan sebagai token (`--rp-motion-fast`, `--rp-motion`, `--rp-ease`)
+dengan alasan yang sama seperti warna: supaya bisa diaudit sekaligus dan tidak
+ada angka ms yang tersebar di tengah file.
+
+### 2.10 Tabrakan teks di kolom waktu
+
+Bug yang terlihat langsung di layar: timestamp menumpuk di atas badge level.
+
+Penyebabnya lebar kolom yang dipaku: `grid-template-columns: 5.5em 4.2em ...`.
+Timestamp lengkap `19:06:44.859` adalah 12 karakter monospace, sekitar 7.2em —
+melebihi 5.5em. Karena kolom waktu juga diberi `white-space: nowrap`, teksnya
+tidak membungkus tapi meluber ke kolom sebelahnya.
+
+Diperbaiki dengan `max-content max-content minmax(0, 1fr)`: dua kolom pertama
+mengambil lebar yang memang dibutuhkan isinya, kolom pesan menyerap sisanya.
+Ditambah `font-variant-numeric: tabular-nums` pada kolom waktu supaya angka
+benar-benar rata kolom, dan `align-items: baseline` supaya badge sejajar dengan
+garis dasar teks.
+
+Pelajaran yang sama dengan bagian 1.6: satuan `em` untuk kolom berisi teks
+monospace dengan panjang yang sudah diketahui adalah taruhan yang tidak perlu.
 
 ---
 

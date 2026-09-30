@@ -93,20 +93,50 @@ Catat **ID extension** dari kartu itu kalau nanti perlu melaporkan masalah.
 
 ---
 
-## 3. Membuka panel
+## 3. Membuka Rapspect: dua permukaan, pilih sesuai kebutuhan
 
-Tiga cara, urut dari yang paling cepat:
+Rapspect punya **dua** tempat tampil dengan isi yang sama persis. Yang berbeda
+hanya ukuran dan satu tombol.
 
-1. **Klik ikon Rapspect di toolbar.** Side panel terbuka di sisi kanan. Ini
-   bekerja karena service worker memanggil
-   `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`.
-   Kalau ikonnya tersembunyi, klik ikon puzzle di toolbar lalu pin Rapspect.
-2. Klik ikon **side panel** di toolbar Chrome, lalu pilih **Rapspect** dari
-   dropdown.
+### 3.1 Popup (klik ikon toolbar)
+
+Klik ikon Rapspect di toolbar. Kotak Rapspect muncul menggantung di bawah ikon.
+Kalau ikonnya tidak kelihatan, klik ikon puzzle di toolbar lalu pin Rapspect.
+
+Cocok untuk: pemeriksaan cepat. Lihat error terakhir, salin, tutup.
+
+**Yang harus kamu tahu:** popup **tertutup begitu kamu mengklik halaman.** Itu
+sifat popup Chrome, bukan bug. Kalau kamu perlu mengawasi log sambil mengklik
+halaman, pakai side panel.
+
+### 3.2 Side panel (tetap terbuka)
+
+Tiga cara:
+
+1. Buka popup, klik tombol **Open side panel** di kanan atas. Popup menutup
+   sendiri, panel terbuka di sisi kanan.
+2. Klik ikon **side panel** di toolbar Chrome, lalu pilih **Rapspect**.
 3. Menu tiga titik Chrome → **Extensions** → Rapspect.
 
-Panel tetap terbuka saat kamu mengklik-klik halaman. Itu memang tujuannya —
-tidak perlu membuka DevTools sama sekali.
+Cocok untuk: sesi pengujian panjang. Panel tetap terbuka saat kamu berinteraksi
+dengan halaman, dan tidak perlu membuka DevTools sama sekali.
+
+Tombol **Open side panel** butuh Chrome 116+. Kalau Chrome-mu lebih lama,
+tombolnya berubah jadi `Needs Chrome 116+` — pakai cara 2 atau 3.
+
+### 3.3 Tab di dalam panel
+
+Tujuh tab: `All`, `Error`, `Warn`, `Info`, `Log`, `Debug`, `Network`. Masing-masing
+membawa hitungan isinya.
+
+Tab ini **lensa ke satu aliran yang sama**, bukan tujuh laporan terpisah. `All`
+adalah default dan tetap gabungan, supaya hubungan antara error console dan
+request yang gagal tetap terlihat berurutan — itu masalah utama yang mau
+diselesaikan Rapspect (README bagian 2). Tab lain hanya mempersempit tampilan.
+
+Hitungan di tiap tab ikut menghormati pencarian dan centang `Failed only` yang
+sedang aktif, jadi angkanya selalu sama dengan jumlah baris yang akan kamu lihat
+saat tab itu dibuka.
 
 **Urutan yang benar:** buka panel dulu, baru reload halaman. Rapspect hanya
 melihat apa yang terjadi setelah dia terpasang di halaman. Itu sebabnya empty
@@ -120,7 +150,7 @@ Aturannya berbeda tergantung file yang kamu ubah.
 
 | File yang diubah | Yang harus dilakukan |
 |---|---|
-| `src/panel/panel.html` / `.css` / `.js` | Tutup panel, buka lagi. Cukup itu |
+| `src/panel/panel.html` / `.css` / `.js` | Tutup popup atau side panel, buka lagi. Cukup itu. File yang sama dipakai kedua permukaan, jadi keduanya ikut terbarui |
 | `src/background/service-worker.js` | Klik **Reload** (ikon panah melingkar) di kartu extension |
 | `src/content/*.js`, `src/shared/rapspect-core.js` | Klik **Reload** di kartu extension, **lalu reload halaman yang diuji**. Dua-duanya, berurutan |
 | `manifest.json` | Klik **Reload**. Kalau muncul error, hapus extension lalu Load unpacked lagi |
@@ -172,7 +202,7 @@ terbuka di tab aktif.
 |---|---|---|
 | V-01 | Load unpacked folder `Rabspect` | Kartu "Rapspect 1.0.0" muncul tanpa label **Errors** merah |
 | V-02 | Periksa daftar izin di kartu extension | Hanya muncul akses baca/ubah data di semua situs. Tidak ada permintaan debugger |
-| V-03 | Klik ikon Rapspect di toolbar | Side panel terbuka di kanan, header navy bertulisan "Rapspect" |
+| V-03 | Klik ikon Rapspect di toolbar | **Popup** muncul menggantung di bawah ikon, header navy bertulisan "Rapspect" beserta logo onta |
 | V-04 | Buka panel di tab kosong (`about:blank`) lalu lihat pesannya | Muncul notice, bukan daftar kosong tanpa penjelasan |
 | V-05 | Buka `chrome://settings` lalu lihat panel | Tampil `Can't read this page. Extensions can't access chrome:// or Web Store pages.` |
 | V-06 | Buka panel, lalu buka `test-page.html` di tab baru **tanpa** reload | Empty state: `No tracks yet — reload the page to start tracking.` |
@@ -282,6 +312,28 @@ spesifikasi awal. Keduanya pernah benar-benar membingungkan saat dipakai.
 | V-67 | Perhatikan chip level yang menyala dan yang mati | Chip menyala punya titik **terisi penuh**. Chip mati punya titik **berongga**, labelnya dicoret, dan tampak lebih redup. Perbedaannya terlihat tanpa mengandalkan warna |
 | V-68 | Nyalakan dan matikan chip `Debug` bergantian | Perbedaan nyala dan mati jelas terlihat. Sebelum perbaikan, chip Debug yang aktif tampak seperti chip mati karena warnanya nyaris sama dengan warna chip nonaktif |
 
+### 6.10 Popup, side panel, tab, dan animasi
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-69 | Klik ikon toolbar | Popup terbuka, lebar kira-kira 460px, tinggi 580px. Tidak ada scrollbar horizontal |
+| V-70 | Dengan popup terbuka, klik di halaman | Popup tertutup. Ini sifat popup Chrome, bukan bug |
+| V-71 | Buka popup, klik **Open side panel** | Popup menutup sendiri, side panel terbuka di kanan dengan isi yang sama |
+| V-72 | Bandingkan popup dan side panel | Isi identik: tab yang sama, tombol yang sama, daftar yang sama. Bedanya hanya ukuran, dan tombol **Open side panel** tidak ada di side panel |
+| V-73 | Periksa baris log yang timestamp-nya panjang, misalnya `19:06:44.859` | Timestamp dan badge level **tidak bertumpuk**. Ada jarak yang jelas di antaranya, dan angka rata kolom antar baris |
+| V-74 | Jalankan **Run all scenarios**, lihat hitungan di tiap tab | Setiap tab punya angka. Tab yang kosong angkanya `0` dan tampak lebih redup |
+| V-75 | Klik tab **Error** | Hanya baris level error: `console.error`, uncaught error, unhandled rejection, resource gagal, dan request dengan status >= 400 |
+| V-76 | Klik tab **Network** | Hanya baris `NET`. Tidak ada entri console |
+| V-77 | Klik tab **Network** pada halaman yang belum punya request `fetch`/XHR | Muncul keterangan bahwa hanya `fetch()` dan `XMLHttpRequest` yang ditangkap, dan bahwa stylesheet, gambar, serta script tidak akan pernah muncul |
+| V-78 | Klik tab **All** | Semua kembali, termasuk pembatas `PAGE` |
+| V-79 | Klik tab **Info**, cari baris `PAGE` | Pembatas navigasi **tidak** muncul di tab Info, hanya di tab All |
+| V-80 | Tekan Tab sampai fokus ada di salah satu tab, lalu tekan panah kanan dan kiri | Tab berpindah mengikuti panah, dan isinya ikut berganti. `Home` ke tab pertama, `End` ke terakhir |
+| V-81 | Ketik `404` di Search, lalu lihat hitungan tab | Angka di tiap tab ikut menyusut mengikuti pencarian. Angka tab selalu sama dengan jumlah baris yang tampil saat tab itu dibuka |
+| V-82 | Biarkan panel terbuka, lalu picu log baru dari halaman uji | Baris baru masuk dengan fade singkat. Baris yang sudah ada **tidak** berkedip |
+| V-83 | Lanjutan V-82: perhatikan hitungan tab yang bertambah | Angkanya berdenyut sekali saat naik. Saat turun karena filter, tidak berdenyut |
+| V-84 | Nyalakan Windows Settings → Accessibility → Visual effects → matikan animasi, lalu buka panel lagi | Tidak ada animasi sama sekali. Panel tetap berfungsi penuh |
+| V-85 | Klik tombol apa pun dan tahan | Tombol mengecil sedikit selama ditekan, lalu kembali |
+
 ---
 
 ## 7. Masalah umum dan solusinya
@@ -304,7 +356,9 @@ Urutkan dari kemungkinan terbesar.
 | Gejala | Penyebab | Solusi |
 |---|---|---|
 | Entri berhenti masuk setelah kamu mengubah kode | Extension di-reload, tapi content script di halaman masih versi lama dan context-nya sudah mati | Reload halaman yang diuji. Selalu dua langkah: reload extension, lalu reload halaman |
-| Semua console masuk, tapi request tidak ada | Request dibuat bukan dengan `fetch`/XHR — misalnya `<img>`, `<script>`, `sendBeacon`, atau WebSocket | Batas yang diketahui, tercatat di `docs/DECISIONS.md` bagian 6. Perlu `webRequest` atau CDP di v2 |
+| **DevTools Network penuh, tab Network Rapspect kosong** | Lihat kolom **Type** di DevTools. Kalau isinya `stylesheet`, `script`, `img`, `font`, atau `document`, resource itu dimuat browser sendiri lewat tag HTML dan **tidak pernah** melewati `fetch` atau `XMLHttpRequest`. Hanya baris bertipe `fetch` dan `xhr` yang bisa ditangkap Rapspect | Bukan bug. Batas yang diketahui, tercatat di `docs/DECISIONS.md` bagian 6 dan 2.8. Menambahnya butuh izin `webRequest` atau `chrome.debugger`, keduanya di luar lingkup v1. Tab Network menampilkan keterangan ini saat kosong |
+| Request yang kamu cari tidak ada padahal dibuat dengan `fetch` | Request terjadi **sebelum** Rapspect terpasang di halaman | Reload halaman dengan panel sudah terbuka |
+| Semua console masuk, tapi request tidak ada | Sama seperti dua baris di atas: `<img>`, `<script>`, `sendBeacon`, dan WebSocket tidak lewat `fetch`/XHR | Batas yang diketahui, `docs/DECISIONS.md` bagian 6 |
 | Request masuk, tapi console tidak ada | Halaman menambal ulang `console.*` **setelah** Rapspect | Cek di DevTools: `console.log.toString()`. Kalau bukan milik Rapspect, halaman menimpanya. Tidak bisa diatasi tanpa CDP |
 | Beberapa log hilang di halaman yang sangat berisik | Antrean jembatan penuh (batas 1000 entri antar-flush) dan yang tertua dibuang | Wajar. Kalau mengganggu, naikkan `MAX_QUEUE` di `src/content/bridge-isolated.js` |
 | Hitungan berhenti di 500 | Ring buffer sudah penuh, entri tertua dibuang. Ini memang spesifikasinya | Klik **Clear**, atau Export JSON sebelum buffer meluap |
@@ -324,6 +378,16 @@ mematikan service worker setelah beberapa puluh detik tanpa event.
 | `[Rapspect] service worker aktif` muncul berulang di console | Worker bangun-tidur berkali-kali | Normal. Baris itu ditulis setiap kali worker dievaluasi |
 | Console service worker kosong, dan tidak ada yang bereaksi | Worker crash saat evaluasi, biasanya karena `importScripts` gagal | Cek path `/src/shared/rapspect-core.js` benar-benar ada. Path di `importScripts` diawali `/` dan dihitung dari root extension |
 | Panel dibuka tapi entri pertama tidak masuk | Pesan pertama dipakai untuk membangunkan worker dan hilang bersamanya | Sudah ditangani: panel meminta snapshot dua kali dan mengirim `rp:ping` saat start. Kalau masih terjadi, reload halaman |
+
+### 7.3b Popup dan side panel
+
+| Gejala | Penyebab | Solusi |
+|---|---|---|
+| Popup menutup sendiri terus | Kamu mengklik halaman. Popup Chrome selalu menutup saat kehilangan fokus | Pakai side panel: buka popup lalu klik **Open side panel** |
+| Tombol **Open side panel** menampilkan `Needs Chrome 116+` | `chrome.sidePanel.open()` baru tersedia di Chrome 116 | Buka side panel dari ikon side panel di toolbar Chrome, lalu pilih Rapspect |
+| Klik ikon toolbar membuka side panel, bukan popup | Sisa setelan `openPanelOnActionClick: true` dari versi Rapspect sebelumnya. Setelan itu bertahan di profil | Klik **Reload** di kartu extension. Service worker menyetelnya ke `false` saat dimuat |
+| Popup terlihat terlalu sempit sesaat lalu melebar | Ukuran popup ditulis oleh `panel.js` dari query string, karena CSP MV3 melarang script inline yang bisa menuliskannya lebih awal | Kosmetik, satu frame. Tercatat di `docs/DECISIONS.md` bagian 2.6 |
+| Side panel dan popup menampilkan isi berbeda | Seharusnya tidak mungkin: keduanya memuat file yang sama dan membaca buffer yang sama | Kalau terjadi, itu bug. Sertakan isi console kedua permukaan saat melaporkan |
 
 ### 7.4 Ikon tidak tampil
 
