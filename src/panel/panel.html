@@ -39,8 +39,26 @@
       <button id="rp-open-panel" class="rp-btn rp-btn--ghost rp-only-popup" type="button"
               title="Keep Rapspect open while you click around the page">Open side panel</button>
       <button id="rp-theme" class="rp-btn rp-btn--ghost" type="button">Light mode</button>
+
+      <!-- Tombol tutup. Memakai karakter &times; (U+00D7), BUKAN emoji dan bukan
+           gambar: README bagian 8 melarang menggambar ikon UI sendiri, dan emoji
+           akan dirender berwarna oleh Windows sehingga merusak nada "membosankan
+           dan sangat terbaca". aria-label diperlukan karena "x" sendirian tidak
+           berarti apa pun bagi screen reader. -->
+      <button id="rp-close" class="rp-iconbtn" type="button"
+              aria-label="Close Rapspect" title="Close">&times;</button>
     </div>
   </header>
+
+  <!-- Hanya muncul kalau permukaan ini MENOLAK ditutup dari dalam.
+       chrome.sidePanel tidak punya close() - API-nya hanya menyediakan open() -
+       jadi di side panel tombol tutup bisa saja tidak berefek. Daripada diam dan
+       terlihat rusak, pengguna diberi tahu jalan keluarnya, sesuai README
+       bagian 10: pesan error harus menyebut jalan keluarnya. -->
+  <p id="rp-close-hint" class="rp-close-hint" hidden>
+    Chrome does not let an extension close the side panel from the inside.
+    Use the <strong>&times;</strong> in the side panel header above.
+  </p>
 
   <p id="rp-target" class="rp-target">Detecting active tab...</p>
 

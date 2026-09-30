@@ -334,6 +334,25 @@ spesifikasi awal. Keduanya pernah benar-benar membingungkan saat dipakai.
 | V-84 | Nyalakan Windows Settings → Accessibility → Visual effects → matikan animasi, lalu buka panel lagi | Tidak ada animasi sama sekali. Panel tetap berfungsi penuh |
 | V-85 | Klik tombol apa pun dan tahan | Tombol mengecil sedikit selama ditekan, lalu kembali |
 
+### 6.11 Tombol tutup
+
+Perilakunya **memang berbeda** antara popup dan side panel, dan itu bukan bug.
+`chrome.sidePanel` tidak menyediakan `close()`; alasannya di
+`docs/DECISIONS.md` bagian 2.6b.
+
+| ID | Langkah | Expected Result |
+|---|---|---|
+| V-86 | Buka popup, lihat kanan atas header | Ada tombol `×` bundar di sebelah tombol tema |
+| V-87 | Arahkan kursor ke tombol `×` | Latar bundarnya menjadi navy lebih gelap. Tooltip berbunyi `Close` |
+| V-88 | Klik `×` di popup | Popup tertutup. Tidak ada keterangan apa pun yang muncul |
+| V-89 | Buka side panel, klik `×` di header Rapspect | **Salah satu dari dua ini, dua-duanya sah:** panel tertutup, **atau** panel tetap terbuka dan muncul satu baris keterangan yang menunjuk `×` milik Chrome di atas |
+| V-90 | Kalau keterangan di V-89 muncul, tunggu 8 detik | Keterangan hilang sendiri tanpa perlu diklik |
+| V-91 | Kalau keterangan di V-89 muncul, tekan `Escape` | Keterangan langsung hilang |
+| V-92 | Di popup, tekan `Escape` | Popup tertutup |
+| V-93 | Klik **Export JSON** lalu tekan `Escape` | Yang tertutup **dialognya**, bukan panelnya. Panel tetap terbuka |
+| V-94 | Lanjutan V-93: tekan `Escape` sekali lagi | Sekarang permukaannya yang tertutup |
+| V-95 | Dengan screen reader aktif, fokuskan tombol `×` | Dibacakan sebagai `Close Rapspect`, bukan sekadar "x" atau "times" |
+
 ---
 
 ## 7. Masalah umum dan solusinya

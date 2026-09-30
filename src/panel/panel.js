@@ -56,6 +56,8 @@
     modalCancel:  document.getElementById('rp-modal-cancel'),
     modalConfirm: document.getElementById('rp-modal-confirm'),
     openPanel:    document.getElementById('rp-open-panel'),
+    close:        document.getElementById('rp-close'),
+    closeHint:    document.getElementById('rp-close-hint'),
     netHint:      document.getElementById('rp-net-hint'),
     tabs:         Array.prototype.slice.call(document.querySelectorAll('.rp-tab')),
     counts:       Array.prototype.slice.call(document.querySelectorAll('.rp-tab__count'))
@@ -802,7 +804,17 @@
   });
 
   document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && !el.modal.hidden) closeExportDialog();
+    if (ev.key !== 'Escape') return;
+
+    // Urutannya penting: kalau dialog export terbuka, Escape menutup DIALOG,
+    // bukan seluruh panel. Menutup panel sementara dialog masih terbuka akan
+    // membuang konfirmasi yang belum dijawab pengguna.
+    if (!el.modal.hidden) { closeExportDialog(); return; }
+
+    // Kalau keterangan gagal-tutup sedang tampil, Escape membersihkannya dulu.
+    if (!el.closeHint.hidden) { el.closeHint.hidden = true; return; }
+
+    closeSurface();
   });
 
   var searchTimer = null;
@@ -842,6 +854,48 @@
       switchScope(el.tabs[next].getAttribute('data-scope'));
     });
   });
+
+  /** Menutup permukaan tempat Rapspect sedang tampil.
+   *
+   *  DUA PERMUKAAN, DUA KEPASTIAN YANG BERBEDA.
+   *
+   *  Popup: `window.close()` dijamin bekerja. Dokumen popup memang milik kita.
+   *
+   *  Side panel: TIDAK ADA `chrome.sidePanel.close()`. API-nya tidak simetris -
+   *  hanya menyediakan `open()` - dan permintaan untuk menambahkan `close()`
+   *  masih terbuka di w3c/webextensions issue 521. `window.close()` adalah satu-
+   *  satunya cara yang tersedia dari dalam dokumen, dan Chrome tidak menjanjikan
+   *  akan menurutinya.
+   *
+   *  Karena itu hasilnya diperiksa, bukan diasumsikan: kalau setelah 250 ms
+   *  dokumen ini masih hidup, berarti permintaan tutup ditolak, dan pengguna
+   *  diberi tahu jalan keluarnya. Diam saat gagal akan membuat tombolnya
+   *  terlihat rusak, dan itu lebih buruk daripada tidak punya tombol. */
+  function closeSurface() {
+    var hintTimer = setTimeout(function () {
+      el.closeHint.hidden = false;
+      // Keterangan menghilang sendiri: sekali dibaca tidak perlu terus memakan
+      // ruang vertikal di panel yang sudah sempit.
+      setTimeout(function () { el.closeHint.hidden = true; }, 8000);
+    }, 250);
+
+    try {
+      window.close();
+    } catch (e) {
+      // Diabaikan: penanganannya sudah diurus oleh timer di atas.
+    }
+
+    // Kalau dokumen benar-benar ditutup, timer di atas tidak akan pernah jalan
+    // karena seluruh konteksnya ikut hilang. Pembersihan ini hanya untuk kasus
+    // window.close() yang melempar secara sinkron tanpa menutup apa pun.
+    if (typeof window.closed === 'boolean' && window.closed) clearTimeout(hintTimer);
+  }
+
+  el.close.addEventListener('click', closeSurface);
+
+  // Escape menutup permukaan, tapi HANYA kalau dialog export tidak sedang
+  // terbuka - kalau terbuka, Escape harus menutup dialognya lebih dulu. Urutan
+  // itu ditangani oleh listener keydown di bawah.
 
   // Popup tertutup begitu pengguna mengklik halaman. Untuk sesi pengujian yang
   // panjang side panel yang dibutuhkan, jadi tombol ini memindahkannya.

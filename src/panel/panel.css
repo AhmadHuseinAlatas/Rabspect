@@ -214,6 +214,48 @@ body {
   letter-spacing: 0.01em;
 }
 
+/* Tombol ikon di header: bundar, tanpa border, hanya berubah latar saat hover.
+   Bentuk ini dipilih supaya kontrol jendela (tutup) terbaca berbeda dari tombol
+   aksi data (Clear, Export) yang berbentuk kotak berbingkai - dua jenis kontrol
+   dengan akibat yang sangat berbeda tidak boleh terlihat sama. */
+.rp-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--rp-on-navy);
+  font-family: var(--rp-font-ui);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--rp-motion-fast) var(--rp-ease),
+              transform var(--rp-motion-fast) var(--rp-ease);
+}
+
+.rp-iconbtn:hover { background: var(--rp-navy-deep); }
+.rp-iconbtn:active { transform: scale(0.92); }
+
+/* Keterangan yang hanya muncul kalau tombol tutup ternyata tidak berefek.
+   Warna warn, karena ini memang peringatan ringan: satu warna satu makna. */
+.rp-close-hint {
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--rp-surface);
+  border-bottom: 1px solid var(--rp-warn);
+  color: var(--rp-text);
+  font-size: 12px;
+  flex: 0 0 auto;
+  animation: rp-notice-in var(--rp-motion) var(--rp-ease) both;
+}
+
+.rp-close-hint[hidden] { display: none; }
+.rp-close-hint strong { font-family: var(--rp-font-mono); }
+
 .rp-target {
   margin: 0;
   padding: 6px 10px;

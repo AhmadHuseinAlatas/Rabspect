@@ -397,6 +397,55 @@ frame sebelum ukuran popup diterapkan; itu tidak terlihat dalam praktik.
   pengaman. Dengan `default_popup` terpasang Chrome tidak pernah memicunya, jadi
   itu hanya akan jadi kode mati yang menyesatkan pembaca berikutnya
 
+### 2.6b Tombol tutup di header, dan kenapa perilakunya tidak bisa dijanjikan sama
+
+**Apa yang diminta.** Header dengan logo dan tombol tutup, seperti ekstensi Jam.
+
+**Yang sebenarnya hilang.** Popup Rapspect tidak punya tombol tutup sama sekali.
+Satu-satunya cara menutupnya adalah mengklik di luar — yang untuk alat QA justru
+sering tidak disengaja. Di side panel, Chrome menyediakan `✕` sendiri di
+header-nya, jadi di sana kebutuhannya lebih kecil.
+
+**Kenyataan teknis yang tidak bisa disembunyikan.** `chrome.sidePanel` **tidak
+punya** `close()`. API-nya tidak simetris: hanya `open()` yang tersedia, dan
+permintaan untuk menambahkan `close()` masih terbuka di
+[w3c/webextensions issue 521](https://github.com/w3c/webextensions/issues/521).
+Artinya:
+
+| Permukaan | `window.close()` | Kepastian |
+|---|---|---|
+| Popup | dokumen milik kita sendiri | **dijamin** bekerja |
+| Side panel | satu-satunya cara dari dalam dokumen | **tidak dijanjikan** Chrome |
+
+**Cara menanganinya tanpa berpura-pura.** Hasil `window.close()` **diperiksa**,
+bukan diasumsikan. Kalau setelah 250 ms dokumen masih hidup, berarti permintaan
+tutup ditolak, dan satu baris keterangan muncul yang menunjuk `✕` milik Chrome di
+header side panel. Keterangan itu hilang sendiri setelah 8 detik supaya tidak
+terus memakan ruang vertikal.
+
+Alasannya sederhana: tombol yang tidak berefek dan tidak berkata apa-apa lebih
+buruk daripada tidak ada tombol. Pengguna akan menyimpulkan ekstensinya rusak.
+Ini juga mengikuti README bagian 10 — pesan harus menyebut jalan keluarnya.
+
+**Detail yang diputuskan sendiri.**
+
+- Karakter `&times;` (U+00D7), **bukan** emoji dan bukan gambar. README bagian 8
+  melarang menggambar ikon UI sendiri, dan emoji akan dirender berwarna oleh
+  Windows sehingga merusak nada "membosankan dan sangat terbaca". `aria-label`
+  wajib ada, karena "x" sendirian tidak berarti apa pun bagi screen reader
+- Bentuknya **bundar tanpa border**, berbeda dari tombol aksi data (`Clear`,
+  `Export JSON`) yang kotak berbingkai. Dua jenis kontrol dengan akibat yang
+  sangat berbeda tidak boleh terlihat sama
+- `Escape` juga menutup, dengan urutan prioritas: dialog export lebih dulu, lalu
+  keterangan gagal-tutup, baru permukaannya. Menutup panel sementara dialog
+  export masih terbuka akan membuang konfirmasi yang belum dijawab
+
+**Yang belum dikerjakan dan sengaja dibiarkan.** Di side panel, header Rapspect
+menduplikasi header Chrome — keduanya menampilkan nama "Rapspect", dan sekarang
+keduanya punya tombol tutup. Itu memakan sekitar 38px ruang vertikal di panel
+yang memang sempit. Meringkasnya berarti header berbeda antar permukaan, dan itu
+keputusan tampilan yang perlu persetujuan pemilik produk lebih dulu.
+
 ### 2.7 Tab per level: lensa, bukan tujuh laporan
 
 **Apa yang diminta.** Menu terpisah untuk error, warn, info, log, dan debug,
