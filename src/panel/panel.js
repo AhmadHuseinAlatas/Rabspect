@@ -241,11 +241,63 @@
     renderTimer = setTimeout(function () { renderTimer = null; render(); }, 60);
   }
 
+  /** Sebut satu per satu filter yang sedang menyembunyikan baris.
+   *
+   *  Kalimat umum seperti "no results" tidak menolong: yang dibutuhkan QA adalah
+   *  tahu SEBAB-nya. Kasus nyata yang memicu fungsi ini: centang "Failed only"
+   *  masih aktif dari pemeriksaan sebelumnya, 20 dari 21 baris hilang, dan tidak
+   *  ada apa pun di layar yang menjelaskan kenapa. */
+  function describeActiveFilters() {
+    var reasons = [];
+
+    if (state.failedOnly) reasons.push('"Failed only (status >= 400)" is on');
+
+    var muted = [];
+    for (var i = 0; i < core.LEVELS.length; i++) {
+      if (!state.levels[core.LEVELS[i]]) muted.push(core.LEVELS[i]);
+    }
+    if (muted.length) reasons.push('muted levels: ' + muted.join(', '));
+
+    // Diambil dari nilai input, bukan dari state.query, karena state.query sudah
+    // dijadikan huruf kecil untuk pencarian - menampilkannya kembali apa adanya
+    // membuat pengguna tidak mengenali kata yang dia ketik sendiri.
+    var typed = el.search.value.trim();
+    if (typed) reasons.push('search is "' + typed + '"');
+
+    return reasons;
+  }
+
+  /** Kembalikan semua filter ke keadaan awal: seluruh level menyala, tidak ada
+   *  pembatasan request gagal, pencarian kosong. */
+  function resetFilters() {
+    for (var i = 0; i < core.LEVELS.length; i++) state.levels[core.LEVELS[i]] = true;
+    el.chips.forEach(function (chip) { chip.setAttribute('aria-pressed', 'true'); });
+
+    state.failedOnly = false;
+    el.failed.checked = false;
+
+    state.query = '';
+    el.search.value = '';
+
+    render();
+  }
+
+  /** Sembunyikan ketiga panel penjelas sekaligus.
+   *  Dipanggil di awal setiap cabang render() supaya tidak ada sisa panel dari
+   *  keadaan sebelumnya yang menempel - bug klasik kalau tiap cabang hanya
+   *  mengurus panelnya sendiri. */
+  function hideAllNotices() {
+    el.blocked.hidden = true;
+    el.empty.hidden = true;
+    el.nomatch.hidden = true;
+  }
+
   function render() {
+    // ---- keadaan 1: halaman tidak bisa diakses extension ----
     if (state.blockedReason) {
+      hideAllNotices();
       el.blockedText.textContent = state.blockedReason;
       el.blocked.hidden = false;
-      el.empty.hidden = true;
       el.list.textContent = '';
       el.count.textContent = '0 shown / 0 captured';
       // Dikosongkan juga, supaya Copy dan Export tidak memakai hasil filter
@@ -253,7 +305,6 @@
       state.lastFiltered = [];
       return;
     }
-    el.blocked.hidden = true;
 
     var filtered = [];
     for (var i = 0; i < state.entries.length; i++) {
@@ -261,15 +312,40 @@
     }
     state.lastFiltered = filtered;
 
-    // Bedakan dua keadaan kosong yang artinya sangat berbeda:
-    // belum ada data sama sekali versus ada data tapi tersaring habis.
+    // ---- keadaan 2: belum ada data sama sekali ----
     if (!state.entries.length) {
+      hideAllNotices();
       el.empty.hidden = false;
       el.list.textContent = '';
       el.count.textContent = '0 shown / 0 captured';
       return;
     }
-    el.empty.hidden = true;
+
+    // ---- keadaan 3: ada data, tapi filter menyembunyikan semuanya ----
+    // Ini keadaan yang BERBEDA dari keadaan 2, dan membedakannya penting:
+    // "belum ada apa-apa yang tertangkap" menyuruh pengguna reload halaman,
+    // sedangkan "tertangkap tapi tersaring" menyuruh pengguna mengubah filter.
+    // Menyamakan keduanya mengirim pengguna ke arah yang salah.
+    if (!filtered.length) {
+      hideAllNotices();
+      el.nomatchTitle.textContent = state.entries.length +
+        (state.entries.length === 1 ? ' entry captured, ' : ' entries captured, ') +
+        'none match the current filter.';
+
+      var reasons = describeActiveFilters();
+      el.nomatchWhy.textContent = reasons.length
+        ? 'Active: ' + reasons.join('; ') + '.'
+        : 'No filter is active, so this is unexpected. Please report it.';
+
+      el.nomatch.hidden = false;
+      el.list.textContent = '';
+      el.count.textContent = '0 shown / ' + state.entries.length +
+                             ' captured (buffer ' + state.max + ')';
+      return;
+    }
+
+    // ---- keadaan 4: ada yang bisa ditampilkan ----
+    hideAllNotices();
 
     var frag = document.createDocumentFragment();
     for (var j = 0; j < filtered.length; j++) frag.appendChild(buildEntryNode(filtered[j]));
@@ -596,6 +672,7 @@
   // ---------------------------------------------------------------------------
 
   el.theme.addEventListener('click', toggleTheme);
+  el.reset.addEventListener('click', resetFilters);
   el.clear.addEventListener('click', doClear);
   el.copy.addEventListener('click', doCopy);
   el.exportBtn.addEventListener('click', openExportDialog);
