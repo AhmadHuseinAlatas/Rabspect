@@ -101,7 +101,12 @@
 
   </div>
 
-  <main class="rp-main">
+  <!-- Pembungkus berposisi, satu-satunya gunanya menjadi acuan bagi tombol
+       "jump to latest" yang mengapung di atas daftar. Tanpa pembungkus ini
+       tombolnya harus position: fixed dan akan salah tempat di popup. -->
+  <div class="rp-stage">
+
+  <main id="rp-main" class="rp-main">
 
     <!-- Pesan untuk halaman yang memang tidak bisa diakses extension.
          Dibedakan dari empty state supaya QA tidak mengira Rapspect rusak. -->
@@ -143,6 +148,16 @@
     <div id="rp-list" class="rp-list" role="list" aria-label="Captured logs and requests"></div>
 
   </main>
+
+    <!-- Muncul hanya kalau entri baru masuk sementara kamu sedang membaca baris
+         yang lebih atas. Tanpa ini, log baru tiba di bawah lipatan dan tidak ada
+         apa pun yang memberitahu - satu-satunya cara tahu adalah menggulir
+         turun terus-menerus secara spekulatif. -->
+    <button id="rp-jump" class="rp-jump" type="button" hidden>
+      <span id="rp-jump-text">New entries</span> &darr;
+    </button>
+
+  </div>
 
   <footer class="rp-status">
     <span id="rp-count" class="rp-status__count" aria-live="polite">0 shown / 0 captured</span>

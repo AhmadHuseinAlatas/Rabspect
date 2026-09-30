@@ -486,6 +486,90 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Tokenisasi untuk pewarnaan sintaks
+  // ---------------------------------------------------------------------------
+
+  /** Pola token, digabung jadi satu ekspresi supaya teks hanya dilintasi sekali.
+   *
+   *  URUTAN ALTERNATIF ITU PENTING. URL harus dicoba lebih dulu daripada pola
+   *  angka:angka, karena stack trace berbunyi
+   *  `...remote-object-helper-content.js:27:27075` - kalau pola angka menang
+   *  lebih dulu, URL-nya pecah jadi serpihan yang tidak terbaca.
+   *
+   *  Grup: 1 url, 2 [REDACTED], 3 nama tipe error, 4 kata "at", 5 baris:kolom. */
+  var SYNTAX_PATTERN = new RegExp([
+    // `blob:` boleh mendahului skema, karena blob URL berbentuk
+    // `blob:https://asal/uuid`. Tanpa awalan opsional ini, kecocokan mulai dari
+    // `https://` dan prefiks `blob:` tertinggal sebagai teks biasa - URL yang
+    // sama jadi terlihat terbelah dua.
+    //
+    // `data:` SENGAJA TIDAK ADA di daftar ini. Skema itu tidak memakai `//`,
+    // jadi pola ini secara struktural tidak bisa mengenainya, dan isi data URI
+    // di log hampir selalu base64 raksasa yang sudah dipotong upstream -
+    // mewarnainya tidak menambah informasi apa pun.
+    '((?:blob:)?(?:chrome-extension|moz-extension|https?|file|ws|wss):\\/\\/[^\\s)\\]"\']+)',
+    '(\\[REDACTED\\])',
+    // Awalan dibuat OPSIONAL. Versi pertama menulis `[A-Z][A-Za-z]*(?:Error|...)`
+    // yang menuntut ada sesuatu sebelum "Error": `TypeError` cocok, tapi `Error`
+    // sendirian tidak pernah cocok - dan `Error` justru bentuk paling umum di
+    // stack trace. Ditemukan oleh tools/selftest-highlight.js, bukan oleh mata.
+    '(\\b(?:[A-Z][A-Za-z]*)?(?:Error|Exception)\\b)',
+    '(\\bat\\s+)',
+    '(\\b\\d+:\\d+\\b)'
+  ].join('|'), 'g');
+
+  /** Pecah teks log menjadi deretan token bertipe.
+   *
+   *  KENAPA DI SINI, BUKAN DI panel.js. Ini logika string murni tanpa DOM, dan
+   *  menaruhnya bersama kode DOM membuatnya tidak bisa diuji tanpa browser.
+   *  Sekarang tools/selftest-highlight.js bisa memverifikasinya langsung.
+   *
+   *  JAMINAN YANG DIUJI: menggabungkan kembali seluruh `v` harus menghasilkan
+   *  teks masukan yang IDENTIK. Untuk alat forensik, tokenizer yang menelan satu
+   *  karakter jauh lebih berbahaya daripada tokenizer yang tidak mewarnai apa
+   *  pun - bukti yang hilang tidak akan pernah disadari.
+   *
+   *  @returns {Array<{t:string, v:string}>} t = plain|url|num|type|kw|redacted */
+  function tokenizeLog(rawText) {
+    var text = String(rawText == null ? '' : rawText);
+    var out = [];
+    var last = 0;
+    var m;
+
+    SYNTAX_PATTERN.lastIndex = 0;
+    while ((m = SYNTAX_PATTERN.exec(text)) !== null) {
+      if (m.index > last) out.push({ t: 'plain', v: text.slice(last, m.index) });
+
+      if (m[1]) {
+        // Stack trace menempelkan ":baris:kolom" di ujung URL. Dipisah supaya
+        // lokasi baris bisa dipindai terpisah dari path filenya - itu dua
+        // pertanyaan berbeda saat melacak error.
+        var split = /^(.*?)(:\d+:\d+)$/.exec(m[1]);
+        if (split) {
+          out.push({ t: 'url', v: split[1] });
+          out.push({ t: 'num', v: split[2] });
+        } else {
+          out.push({ t: 'url', v: m[1] });
+        }
+      } else if (m[2]) out.push({ t: 'redacted', v: m[2] });
+      else if (m[3]) out.push({ t: 'type', v: m[3] });
+      else if (m[4]) out.push({ t: 'kw', v: m[4] });
+      else if (m[5]) out.push({ t: 'num', v: m[5] });
+
+      last = m.index + m[0].length;
+
+      // Penjaga terhadap kecocokan berpanjang nol. Tidak mungkin terjadi dengan
+      // pola di atas, tapi kalau suatu saat ada alternatif yang bisa cocok
+      // dengan string kosong, tanpa baris ini loopnya berputar selamanya dan
+      // membekukan panel.
+      if (m[0].length === 0) SYNTAX_PATTERN.lastIndex++;
+    }
+
+    if (last < text.length) out.push({ t: 'plain', v: text.slice(last) });
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
   // Sanitasi entri (dipakai service worker)
   // ---------------------------------------------------------------------------
 
@@ -585,6 +669,7 @@
     redactBodyText: redactBodyText,
     serializeArgs: serializeArgs,
     stringifyValue: stringifyValue,
+    tokenizeLog: tokenizeLog,
     sanitizeEntry: sanitizeEntry,
     networkLevel: networkLevel
   };

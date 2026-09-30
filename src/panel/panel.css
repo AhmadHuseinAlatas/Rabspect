@@ -82,6 +82,22 @@
      Detail di docs/DECISIONS.md bagian 1.6. */
   --rp-debug:       #7EA8DB;   /*  6.93:1 di bg,  5.17:1 di zebra */
 
+  /* ----- Palet sintaks -----
+     TERPISAH dari warna level di atas, dan itu inti persoalannya.
+
+     README bagian 6 aturan 2 berbunyi "satu warna, satu makna, tidak ada
+     pengecualian". Kalau URL diwarnai teal, teal jadi berarti dua hal: level
+     info DAN URL. Karena itu palet ini memakai hue yang tidak dipakai warna
+     semantik mana pun, dan tools/selftest-contrast.js menegakkan jarak minimum
+     25 terhadap setiap warna level - jarak terdekat yang sebenarnya 44.
+
+     Hanya DUA hue baru. Sisa struktur stack trace ("at", tanda kurung, titik)
+     memakai --rp-text-muted, yang maknanya sudah tepat: kurang penting. Nama
+     tipe error dibedakan dengan KETEBALAN, bukan warna, supaya merah tidak
+     dipakai dua kali untuk hal yang berbeda. */
+  --rp-syn-url:     #C9A0F5;   /* 8.01:1 di bg, 5.97:1 di zebra | jarak minimum 58 */
+  --rp-syn-num:     #E8C68F;   /* sama dengan --rp-sand dari logo. 10.51:1 / 7.83:1 | jarak 90 */
+
   --rp-on-navy:     #FAF0DC;   /* 10.15:1 di atas --rp-navy */
   --rp-shadow:      rgb(0 0 0 / 45%);
   --rp-overlay:     rgb(16 28 46 / 78%);
@@ -108,6 +124,15 @@
      memakai #5A6B7F, dan itu keliru: nilainya PERSIS SAMA dengan
      --rp-text-muted di atas. */
   --rp-debug:       #3F5A80;   /*  6.32:1 di bg */
+
+  /* Palet sintaks, light mode. Hue-nya dipertahankan sefamili dengan dark
+     (violet dan warna tanah) supaya kebiasaan mata tidak perlu dipelajari dua
+     kali saat tema diganti. Angka memakai olive, bukan coklat keemasan yang
+     lebih dekat ke sand: coklat keemasan hanya berjarak 34 dari --rp-warn
+     #8A6100 dan akan terlihat mirip. Olive berjarak 44. Ini pelajaran yang sama
+     dengan kasus --rp-debug di bagian 1.6 - jarak menang atas kemiripan hue. */
+  --rp-syn-url:     #6B3FA0;   /* 6.63:1 di bg, 7.38:1 di putih | jarak minimum 58 */
+  --rp-syn-num:     #5F6B00;   /* 5.26:1 di bg, 5.85:1 di putih | jarak minimum 44 */
 
   --rp-on-navy:     #FAF0DC;
   --rp-shadow:      rgb(22 41 63 / 18%);
@@ -439,10 +464,52 @@ body {
 .rp-actions { justify-content: flex-start; }
 
 /* ---------- Area data: mulai dari sini harus membosankan ---------- */
+.rp-stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  /* min-height: 0 wajib ada. Tanpa ini, flex item yang berisi area scroll akan
+     tumbuh melewati tinggi induknya alih-alih menggulir di dalamnya, dan
+     footer terdorong keluar layar. */
+  min-height: 0;
+}
+
 .rp-main {
   flex: 1 1 auto;
   overflow: auto;
   background: var(--rp-bg);
+}
+
+/* Tombol mengapung yang memberi tahu ada entri baru di bawah lipatan. */
+.rp-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: 1px solid var(--rp-navy);
+  border-radius: 999px;
+  background: var(--rp-navy);
+  color: var(--rp-on-navy);
+  font-family: var(--rp-font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px var(--rp-shadow);
+  /* Animasi masuk memakai transform, dan translateX(-50%) harus ikut di dalam
+     keyframe - kalau hanya ditulis di sini, animasi akan menimpanya dan
+     tombolnya melompat ke kanan saat muncul. */
+  animation: rp-jump-in var(--rp-motion) var(--rp-ease) both;
+}
+
+.rp-jump[hidden] { display: none; }
+.rp-jump:hover { border-color: var(--rp-text); }
+.rp-jump:active { transform: translateX(-50%) scale(0.96); }
+
+@keyframes rp-jump-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%); }
 }
 
 .rp-list {
@@ -578,6 +645,55 @@ body {
   color: var(--rp-warn);
   font-family: var(--rp-font-ui);
   font-size: 11px;
+}
+
+/* ---------- Pewarnaan sintaks di dalam baris log ----------
+
+   INI SATU-SATUNYA WARNA TAMBAHAN YANG BOLEH MASUK AREA DATA, dan pembenarannya
+   harus jelas karena README bagian 5 melarang "efek dekoratif di dalam baris
+   log".
+
+   Yang di bawah ini BUKAN dekorasi: setiap kelas menandai satu jenis informasi
+   yang dicari mata saat membaca stack trace - di file mana, baris berapa, dan
+   apakah frame-nya milik halaman atau milik extension lain. Tujuan README
+   sendiri adalah "pengguna harus bisa memindai status 404 dalam sepersekian
+   detik"; pewarnaan struktural melayani tujuan itu, bukan melawannya.
+
+   Batasnya dijaga ketat:
+     - hanya DUA hue, keduanya di luar palet semantik
+     - teks isi tetap --rp-text, tidak diwarnai
+     - kerangka stack trace ("at", tanda kurung) justru DIREDUPKAN, bukan
+       diwarnai, supaya yang penting lebih menonjol dan bukan sebaliknya
+     - nama tipe error dibedakan dengan ketebalan, bukan warna, karena merah
+       sudah dipakai untuk level dan tidak boleh berarti dua hal
+     - tidak ada animasi per token. Teks yang bergerak lebih sulit dibaca, dan
+       di sinilah larangan README benar-benar berlaku */
+
+.rp-syn-url {
+  color: var(--rp-syn-url);
+}
+
+.rp-syn-num {
+  color: var(--rp-syn-num);
+}
+
+/* Kerangka stack trace: kata "at" dan jarak setelahnya. Diredupkan, bukan
+   diwarnai - ini yang membuat lokasi file menonjol tanpa menambah hue. */
+.rp-syn-kw {
+  color: var(--rp-text-muted);
+}
+
+/* Nama tipe error: TypeError, RangeError, DOMException. Hanya ketebalan. */
+.rp-syn-type {
+  font-weight: 700;
+}
+
+/* Penanda redaction yang muncul di tengah body atau header. Memakai warna warn
+   yang sama dengan .rp-redacted-flag di atas, karena maknanya memang sama:
+   "ada yang disensor di sini". Satu warna, satu makna tetap utuh. */
+.rp-syn-redacted {
+  color: var(--rp-warn);
+  font-weight: 700;
 }
 
 /* ---------- Empty state: satu-satunya tempat karakter onta boleh muncul ---- */

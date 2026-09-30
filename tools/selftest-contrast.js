@@ -61,7 +61,11 @@ const themes = [
       '--rp-warn': '#FFD21E',
       '--rp-info': '#3FBFC7',
       '--rp-success': '#4FC98A',
-      '--rp-debug': '#7EA8DB'
+      '--rp-debug': '#7EA8DB',
+      // Palet sintaks. Diuji dengan ambang yang sama karena dipakai sebagai
+      // teks di dalam baris log, bukan sebagai hiasan.
+      '--rp-syn-url': '#C9A0F5',
+      '--rp-syn-num': '#E8C68F'
     }
   },
   {
@@ -74,7 +78,9 @@ const themes = [
       '--rp-warn': '#8A6100',
       '--rp-info': '#0B6C74',
       '--rp-success': '#1A7A4D',
-      '--rp-debug': '#3F5A80'
+      '--rp-debug': '#3F5A80',
+      '--rp-syn-url': '#6B3FA0',
+      '--rp-syn-num': '#5F6B00'
     }
   }
 ];
@@ -142,6 +148,22 @@ themes.forEach((theme) => {
     ['--rp-error', '--rp-warn'],
     ['--rp-info', '--rp-success']
   ];
+
+  // Setiap warna sintaks diuji terhadap SETIAP warna semantik, tanpa kecuali.
+  //
+  // Ini yang menegakkan README bagian 6 aturan 2 - "satu warna, satu makna,
+  // tidak ada pengecualian" - pada palet sintaks. Kalau warna URL cukup dekat
+  // dengan --rp-info, maka teal berarti dua hal sekaligus di dalam satu baris
+  // log: level info DAN sebuah lokasi. Pemeriksaan kontras tidak akan pernah
+  // menangkap itu; keduanya bisa lolos 4.5:1 dengan nyaman dan tetap salah.
+  const syntaxTokens = ['--rp-syn-url', '--rp-syn-num'];
+  const semanticTokens = ['--rp-error', '--rp-warn', '--rp-info', '--rp-success',
+                          '--rp-debug', '--rp-text', '--rp-text-muted'];
+  syntaxTokens.forEach((s) => {
+    semanticTokens.forEach((t) => pairs.push([s, t]));
+  });
+  pairs.push(['--rp-syn-url', '--rp-syn-num']);
+
   pairs.forEach(([a, b]) => {
     const d = rgbDistance(theme.colors[a], theme.colors[b]);
     const ok = d >= MIN_TOKEN_DISTANCE;

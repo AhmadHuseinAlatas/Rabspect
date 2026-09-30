@@ -219,7 +219,8 @@ try {
   if (lightBlock) {
     const themeTokens = ['--rp-bg', '--rp-surface', '--rp-surface-alt', '--rp-border',
                          '--rp-text', '--rp-text-muted', '--rp-error', '--rp-warn',
-                         '--rp-info', '--rp-success', '--rp-debug'];
+                         '--rp-info', '--rp-success', '--rp-debug',
+                         '--rp-syn-url', '--rp-syn-num'];
     const absent = themeTokens.filter((t) => lightBlock[1].indexOf(t + ':') === -1);
     check('semua token tema punya nilai light mode', absent.length === 0,
           'belum ada di light: ' + absent.join(', '));
