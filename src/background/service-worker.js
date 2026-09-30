@@ -194,6 +194,16 @@ async function addEntries(tabId, rawEntries, frameId) {
     var entry = core.sanitizeEntry(rawEntries[i]);
     if (typeof frameId === 'number') entry.frameId = frameId;
 
+    // Atribusi dilakukan DI SINI, setelah sanitasi. sanitizeEntry membuang field
+    // yang tidak dikenal, jadi halaman tidak bisa mengirim extId sendiri untuk
+    // menyamarkan error-nya sebagai milik extension lain - yang tetap bisa dia
+    // lakukan hanyalah memalsukan frame, dan itu batas yang tercatat di
+    // SECURITY.md. Dilakukan sebelum ingest(): entri identik selalu punya
+    // atribusi yang sama, karena atribusinya diturunkan dari teks dan stack yang
+    // juga menentukan identitasnya.
+    var foreignId = core.foreignExtensionId(entry, chrome.runtime.id);
+    if (foreignId) entry.extId = foreignId;
+
     if (entry.kind === 'navigation') {
       // Satu reload memicu DUA sinyal: content script baru (kind navigation)
       // dan chrome.tabs.onUpdated. Tanpa dedupe, setiap reload menghasilkan dua

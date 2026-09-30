@@ -43,6 +43,7 @@
     pause:        document.getElementById('rp-pause'),
     pausedBadge:  document.getElementById('rp-paused'),
     group:        document.getElementById('rp-group'),
+    hideExt:      document.getElementById('rp-hide-ext'),
     extra:        document.getElementById('rp-extra'),
     format:       document.getElementById('rp-format'),
     modalCopy:    document.getElementById('rp-modal-copy'),
@@ -90,6 +91,9 @@
     scope: 'all',
     failedOnly: false,
     group: true,
+    // Baris milik extension lain disembunyikan atau tidak. Bawaannya TIDAK:
+    // atribusinya heuristik, jadi baris itu diberi label, bukan dihilangkan.
+    hideForeign: false,
     paused: false,
     // Entri yang masuk selagi dibekukan. Dihitung supaya penanda PAUSED bisa
     // menyebut angkanya - "dibekukan" tanpa angka tidak memberi tahu apakah
@@ -376,6 +380,9 @@
    *  aturan yang sama persis seperti isi tab itu saat dibuka - hitungan yang
    *  tidak cocok dengan isinya lebih buruk daripada tidak ada hitungan. */
   function passesCommon(entry) {
+    // Diperiksa di sini, bukan di matchesScope, supaya berlaku di SEMUA lensa
+    // dan ikut dihitung angka tab dengan aturan yang sama.
+    if (state.hideForeign && entry.extId) return false;
     if (state.failedOnly) {
       if (entry.kind !== 'network') return false;
       if (!(entry.failed || entry.status >= 400)) return false;
@@ -476,6 +483,7 @@
 
     if (state.scope !== 'all') reasons.push('tab "' + state.scope + '" is selected');
     if (state.failedOnly) reasons.push('"Failed only (status >= 400)" is on');
+    if (state.hideForeign) reasons.push('"Hide other extensions" is on');
 
     // Diambil dari nilai input, bukan dari state.query, karena state.query sudah
     // dijadikan huruf kecil untuk pencarian - menampilkannya kembali apa adanya
@@ -487,10 +495,19 @@
   }
 
   /** Kembalikan semua filter ke keadaan awal: lensa All, tidak ada pembatasan
-   *  request gagal, pencarian kosong. */
+   *  request gagal, pencarian kosong, baris extension lain tampil.
+   *
+   *  "Hide other extensions" ikut direset walaupun lebih mirip preferensi. Tombol
+   *  ini muncul tepat saat SEMUA baris tersembunyi, dan janjinya "tampilkan
+   *  semuanya lagi". Tombol reset yang menyisakan satu filter tersembunyi akan
+   *  meninggalkan pengguna di depan daftar kosong yang sama. */
   function resetFilters() {
     state.failedOnly = false;
     el.failed.checked = false;
+
+    state.hideForeign = false;
+    el.hideExt.checked = false;
+    savePrefs();
 
     state.query = '';
     el.search.value = '';
@@ -696,6 +713,7 @@
     var wrap = document.createElement('div');
     var classes = 'rp-entry';
     if (entry.kind === 'navigation') classes += ' rp-entry--navigation';
+    if (entry.extId) classes += ' rp-entry--foreign';
     // Isyarat kedatangan hanya untuk baris yang benar-benar baru. Ambangnya
     // diterima sebagai argumen, bukan dibaca dari state, karena state sudah
     // diperbarui ke nilai terbaru di awal render() - membacanya di sini akan
@@ -719,6 +737,20 @@
     var msg = document.createElement('span');
     msg.className = 'rp-row__msg';
     fillMessage(msg, entry);
+
+    // Label asal diletakkan di AWAL pesan, bukan di akhir. Error dari extension
+    // lain hampir selalu unhandled rejection yang stack-nya ikut di dalam teks,
+    // jadi akhir pesannya bisa sepuluh baris di bawah - label di sana tidak akan
+    // terlihat saat mata memindai daftar.
+    if (entry.extId) {
+      var ext = document.createElement('span');
+      ext.className = 'rp-ext';
+      ext.textContent = 'EXT';
+      ext.title = 'From another browser extension, not from this page. ' +
+                  'Every stack frame belongs to extension ' + entry.extId + '. ' +
+                  'Open chrome://extensions/?id=' + entry.extId + ' to see which one.';
+      msg.insertBefore(ext, msg.firstChild);
+    }
 
     // Penghitung pengulangan. Waktu yang ditampilkan adalah kemunculan PERTAMA;
     // yang terakhir ada di blok detail. Menampilkan yang terakhir di baris akan
@@ -1059,6 +1091,7 @@
       scope: state.scope,
       failedOnly: state.failedOnly,
       group: state.group,
+      hideForeign: state.hideForeign,
       extra: el.extra.value
     };
     try { chrome.storage.local.set(payload); } catch (e) {}
@@ -1077,6 +1110,10 @@
           if (typeof p.group === 'boolean') {
             state.group = p.group;
             el.group.checked = p.group;
+          }
+          if (typeof p.hideForeign === 'boolean') {
+            state.hideForeign = p.hideForeign;
+            el.hideExt.checked = p.hideForeign;
           }
           if (typeof p.extra === 'string' && p.extra) {
             el.extra.value = p.extra;
@@ -1347,6 +1384,12 @@
 
   el.failed.addEventListener('change', function () {
     state.failedOnly = el.failed.checked;
+    savePrefs();
+    render();
+  });
+
+  el.hideExt.addEventListener('change', function () {
+    state.hideForeign = el.hideExt.checked;
     savePrefs();
     render();
   });

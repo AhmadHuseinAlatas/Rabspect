@@ -91,6 +91,14 @@
         <input id="rp-failed" type="checkbox">
         <span>Failed only (status &gt;= 400)</span>
       </label>
+      <!-- Mati secara bawaan, dengan sengaja. Atribusi ke extension lain adalah
+           heuristik dari stack trace, dan halaman bisa memalsukan frame. Alat
+           debugging tidak boleh menyembunyikan bukti berdasarkan tebakan, jadi
+           baris berlabel EXT tetap tampil sampai pengguna sendiri memilih. -->
+      <label class="rp-check">
+        <input id="rp-hide-ext" type="checkbox">
+        <span title="Hide errors whose every stack frame belongs to another browser extension. They are labelled EXT in the list and are never counted as page errors in exports.">Hide other extensions</span>
+      </label>
       <label class="rp-check">
         <input id="rp-group" type="checkbox" checked>
         <!-- Tooltip ini harus jujur tentang dua lapis penggabungan. Kejadian

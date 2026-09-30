@@ -813,7 +813,93 @@
       if (entry.failed && entry.statusText) bits.push('(' + entry.statusText + ')');
       return '[' + time + '] ' + tag + ' ' + bits.join(' ');
     }
-    return '[' + time + '] ' + tag + ' ' + String(entry.text || '');
+    // Label asal ikut di baris datar, karena baris inilah yang disalin ke tiket
+    // lewat Copy as text dan tombol copy per baris. Tanpa label, error extension
+    // lain yang tersalin terbaca seperti error situsnya.
+    var source = entry.extId ? ' (other extension)' : '';
+    return '[' + time + '] ' + tag + source + ' ' + String(entry.text || '');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Atribusi: error milik extension lain
+  // ---------------------------------------------------------------------------
+
+  /** Baris frame stack trace V8: diawali "at" setelah spasi. */
+  var FRAME_LINE = /^\s*at\s/;
+
+  /** Lokasi di dalam baris frame. `blob:` boleh mendahului skema, sama seperti
+   *  di tokenizer, karena blob URL berbentuk `blob:https://asal/uuid`. */
+  var FRAME_LOCATION =
+    /((?:blob:)?(?:chrome-extension|moz-extension|https?|file|webpack|webpack-internal):\/\/[^\s)]+)/g;
+
+  var EXTENSION_LOCATION = /^(?:blob:)?(?:chrome-extension|moz-extension):\/\/([a-z0-9]+)/i;
+
+  /** Id extension LAIN yang menjadi asal sebuah entri, atau null.
+   *
+   *  KENAPA ADA. Stack trace yang pernah dikirim sebagai contoh bug ternyata sama
+   *  sekali bukan dari situs yang sedang diuji: setiap frame-nya berada di
+   *  `chrome-extension://ljdobmomdgdljniojadhoplhkpialdid/...`, extension lain
+   *  yang terpasang di Chrome penguji dan menyuntikkan script ke halaman. Kalau
+   *  dilaporkan ke tim produk, itu laporan bug palsu.
+   *
+   *  ATURANNYA SENGAJA SEMPIT, karena label yang salah lebih merusak daripada
+   *  label yang tidak ada:
+   *
+   *    - hanya BARIS FRAME ("    at ...") yang dibaca. URL extension yang
+   *      sekadar disebut di teks pesan tidak membuat entri dianggap milik
+   *      extension itu
+   *    - SEMUA frame yang punya lokasi harus milik extension lain. Satu saja frame
+   *      halaman berarti halaman ikut terlibat - misalnya kode halaman yang
+   *      memanggil pembungkus fetch milik extension - dan itu tetap urusan
+   *      halaman. Hasilnya null, tanpa label
+   *    - frame milik Rapspect sendiri diabaikan, bukan dihitung sebagai frame
+   *      halaman. Error dari extension lain yang kebetulan melewati pembungkus
+   *      fetch Rapspect tetap dikenali
+   *    - frame tanpa lokasi (`<anonymous>`, `native`) diabaikan
+   *    - entri tanpa frame sama sekali tidak bisa diatribusikan, dan hasilnya
+   *      null. Ini termasuk console.log/info/debug, karena stack hanya diambil
+   *      untuk error dan warn (mengambilnya di setiap log terlalu mahal), dan
+   *      request network, karena pemanggilnya tidak direkam
+   *
+   *  Kalau ada lebih dari satu extension lain di stack, yang dikembalikan adalah
+   *  yang muncul di frame PALING ATAS - tempat error-nya dilempar.
+   *
+   *  Stack dicari di dua tempat: `stack` (console.error dan console.warn), dan
+   *  `text` (unhandled rejection menyimpan stack Error-nya di dalam teks pesan).
+   *
+   *  BATAS YANG HARUS DIKETAHUI: halaman bisa memalsukan frame. Ini heuristik,
+   *  bukan bukti, dan itu alasan baris berlabel tetap TAMPIL secara default.
+   *
+   *  @param {object} entry
+   *  @param {string} ownId  chrome.runtime.id milik Rapspect
+   *  @returns {string|null} */
+  function foreignExtensionId(entry, ownId) {
+    if (!entry || typeof entry !== 'object') return null;
+    var own = String(ownId || '').toLowerCase();
+
+    var sources = [];
+    if (typeof entry.stack === 'string' && entry.stack) sources.push(entry.stack);
+    if (typeof entry.text === 'string' && entry.text) sources.push(entry.text);
+
+    var foreign = null;
+    var pageFrame = false;
+
+    for (var s = 0; s < sources.length && !pageFrame; s++) {
+      var lines = sources[s].split('\n');
+      for (var i = 0; i < lines.length && !pageFrame; i++) {
+        if (!FRAME_LINE.test(lines[i])) continue;
+        FRAME_LOCATION.lastIndex = 0;
+        var m;
+        while ((m = FRAME_LOCATION.exec(lines[i])) !== null) {
+          var ext = EXTENSION_LOCATION.exec(m[1]);
+          if (!ext) { pageFrame = true; break; }
+          var id = ext[1].toLowerCase();
+          if (id === own) continue;
+          if (foreign === null) foreign = id;
+        }
+      }
+    }
+    return pageFrame ? null : foreign;
   }
 
   // ---------------------------------------------------------------------------
@@ -1047,6 +1133,16 @@
       lines.push('');
       lines.push('(' + entry.redacted + ' value(s) replaced with ' + REDACTED_MARK + ')');
     }
+    if (entry.extId) {
+      // Nama extension tidak bisa diambil: chrome.management.get butuh izin
+      // "management", yang di luar daftar putih izin proyek ini. Halaman
+      // chrome://extensions dengan id ini yang menunjukkan namanya. Id-nya sendiri
+      // sudah ada di setiap URL frame, jadi menyebutnya tidak membuka apa pun yang
+      // belum terlihat di stack trace.
+      lines.push('');
+      lines.push('source   : another extension installed in this browser, not this page.');
+      lines.push('           See which one at chrome://extensions/?id=' + entry.extId);
+    }
     return lines.join('\n');
   }
 
@@ -1120,14 +1216,24 @@
    *  "1 error" untuk halaman yang melempar error dalam loop - kebalikan persis
    *  dari apa yang perlu diketahui pembaca tiket. */
   function summaryOf(list) {
-    var counts = { error: 0, warn: 0, failed: 0 };
+    var counts = { error: 0, warn: 0, failed: 0, foreign: 0 };
     for (var i = 0; i < list.length; i++) {
       var n = occurrencesOf(list[i]);
+      // Kejadian dari extension lain TIDAK masuk hitungan error dan warning
+      // halaman. Ringkasan adalah baris pertama yang dibaca penerima tiket, dan
+      // "3 error" yang dua di antaranya bukan milik situsnya mengirim developer
+      // ke arah yang salah. Jumlahnya tetap disebut terpisah, bukan disembunyikan.
+      if (list[i].extId) { counts.foreign += n; continue; }
       if (list[i].level === 'error') counts.error += n;
       if (list[i].level === 'warn') counts.warn += n;
       if (list[i].kind === 'network' && (list[i].failed || list[i].status >= 400)) counts.failed += n;
     }
     return counts;
+  }
+
+  function summaryText(sum) {
+    return sum.error + ' error, ' + sum.warn + ' warning, ' + sum.failed + ' failed request' +
+      (sum.foreign ? '; plus ' + sum.foreign + ' from other browser extensions, not counted' : '');
   }
 
   function buildMarkdown(info, list, redactionNote) {
@@ -1146,8 +1252,7 @@
              (info.query ? ', search `' + mdCell(info.query, 60) + '`' : '') + ' |');
     out.push('| Entries | ' + list.length + ' of ' + (info.total || list.length) +
              ' captured (buffer ' + (info.max || LIMITS.MAX_ENTRIES) + ') |');
-    out.push('| Summary | ' + sum.error + ' error, ' + sum.warn + ' warning, ' +
-             sum.failed + ' failed request |');
+    out.push('| Summary | ' + mdCell(summaryText(sum), 300) + ' |');
     out.push('| Redaction | ' + mdCell(redactionNote, 400) + ' |');
     out.push('');
 
@@ -1169,7 +1274,9 @@
           mdCell(e.url, 200)
         : mdCell(e.text, 200);
       var repeat = e.repeatCount > 1 ? ' _(×' + e.repeatCount + ')_' : '';
-      out.push('| `' + formatTime(e.t) + '` | `' + tagFor(e) + '` | ' + detail + repeat + ' |');
+      var mdSource = e.extId ? ' _other extension_' : '';
+      out.push('| `' + formatTime(e.t) + '` | `' + tagFor(e) + '`' + mdSource + ' | ' +
+               detail + repeat + ' |');
     }
     out.push('');
 
@@ -1215,8 +1322,7 @@
              (info.query ? ', search ' + jiraCell(info.query, 60) : '') + ' |');
     out.push('| Entries | ' + list.length + ' of ' + (info.total || list.length) +
              ' captured (buffer ' + (info.max || LIMITS.MAX_ENTRIES) + ') |');
-    out.push('| Summary | ' + sum.error + ' error, ' + sum.warn + ' warning, ' +
-             sum.failed + ' failed request |');
+    out.push('| Summary | ' + jiraCell(summaryText(sum), 300) + ' |');
     out.push('| Redaction | ' + jiraCell(redactionNote, 400) + ' |');
     out.push('');
 
@@ -1237,7 +1343,9 @@
           jiraCell(e.url, 200)
         : jiraCell(e.text, 200);
       var repeat = e.repeatCount > 1 ? ' (x' + e.repeatCount + ')' : '';
-      out.push('| ' + formatTime(e.t) + ' | ' + tagFor(e) + ' | ' + detail + repeat + ' |');
+      var jiraSource = e.extId ? ' (other extension)' : '';
+      out.push('| ' + formatTime(e.t) + ' | ' + tagFor(e) + jiraSource + ' | ' +
+               detail + repeat + ' |');
     }
     out.push('');
 
@@ -1287,6 +1395,7 @@
     isRestrictedUrl: isRestrictedUrl,
     compactUrl: compactUrl,
     entryToLine: entryToLine,
+    foreignExtensionId: foreignExtensionId,
     entrySignature: entrySignature,
     mergeRepeat: mergeRepeat,
     ingest: ingest,

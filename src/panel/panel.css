@@ -844,6 +844,31 @@ body {
 
 .rp-status__paused[hidden] { display: none; }
 
+/* Label asal "EXT" untuk baris yang seluruh frame-nya milik extension lain.
+   Pil netral seperti penghitung pengulangan, bukan warna baru: asal adalah
+   metadata, bukan tingkat keparahan, dan badge level di kolom kiri tetap merah
+   karena kejadiannya memang error - hanya saja bukan milik halaman ini. Garis
+   putus-putus membedakannya dari pil hitungan tanpa menambah hue. */
+.rp-ext {
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px dashed var(--rp-text-muted);
+  border-radius: 999px;
+  color: var(--rp-text-muted);
+  font-family: var(--rp-font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Satu-satunya pengecualian atas "isi log selalu --rp-text". Baris ini bukan
+   data halaman yang sedang diuji, jadi diturunkan ke --rp-text-muted, seperti
+   pembatas halaman. Ini penurunan penekanan, bukan pewarnaan per level:
+   --rp-text-muted tetap lolos 4.5:1 di semua latar kedua tema (diverifikasi
+   tools/selftest-contrast.js), jadi barisnya tetap terbaca penuh. */
+.rp-entry--foreign .rp-row__msg { color: var(--rp-text-muted); }
+
 /* Penghitung pengulangan pada baris yang dikelompokkan. Bentuk pil, bukan warna
    baru: angka ini metadata, bukan tingkat keparahan. */
 .rp-repeat {

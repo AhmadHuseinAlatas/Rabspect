@@ -19,6 +19,10 @@
  *   2. Hitungan di tab harus sama dengan jumlah baris yang tampil. countRows()
  *      dan groupRows() dibandingkan pada ribuan deret acak.
  *
+ * Bagian 7 memeriksa atribusi: entri mana yang dianggap berasal dari extension
+ * lain. Masuk ke file ini karena atribusi juga terjadi saat entri masuk buffer,
+ * di langkah yang sama dengan penggabungan.
+ *
  * CARA PAKAI (dari folder proyek):
  *   node tools/selftest-ingest.js
  * Exit code 0 kalau semua lolos, 1 kalau ada yang gagal.
@@ -265,7 +269,129 @@ function navEntry(url) {
 }
 
 // -----------------------------------------------------------------------------
-// 7. Halaman tidak bisa memalsukan hitungan
+// 7. Atribusi: error milik extension lain
+// -----------------------------------------------------------------------------
+// Aturannya sengaja sempit. Label yang salah lebih merusak daripada label yang
+// tidak ada, karena label itu yang menentukan apakah developer menanggapi
+// sebuah bug report atau menutupnya.
+{
+  const OWN = 'rapspectownidrapspectownidabcdef';
+  const OTHER = 'ljdobmomdgdljniojadhoplhkpialdid';
+  const THIRD = 'aaaabbbbccccddddeeeeffffgggghhhh';
+
+  // Kasus nyata: stack trace yang pernah dikirim sebagai contoh bug. Unhandled
+  // rejection menyimpan stack Error-nya di dalam teks pesan, bukan di `stack`.
+  const real = {
+    kind: 'error', level: 'error',
+    text: 'Unhandled promise rejection: Error: Method not found: "object.extension.inIncognitoContext.toJSON"\n' +
+          'Error: Method not found: "object.extension.inIncognitoContext.toJSON"\n' +
+          '    at k.<anonymous> (chrome-extension://' + OTHER + '/common/remote-object-helper-content.js:27:27075)\n' +
+          '    at k.emit (chrome-extension://' + OTHER + '/common/remote-object-helper-content.js:1:2446)\n' +
+          '    at aa.emit (chrome-extension://' + OTHER + '/common/remote-object-helper-content.js:27:12679)'
+  };
+  check('contoh nyata dikenali sebagai extension lain',
+        core.foreignExtensionId(real, OWN) === OTHER, core.foreignExtensionId(real, OWN));
+
+  // Frame milik Rapspect sendiri tidak pernah dihitung sebagai "extension lain".
+  check('frame milik Rapspect sendiri tidak membuat entri dianggap asing',
+        core.foreignExtensionId(real, OTHER) === null,
+        'kalau id-nya milik Rapspect, tidak ada frame asing yang tersisa');
+
+  // Error extension lain yang melewati pembungkus fetch Rapspect: frame Rapspect
+  // diabaikan, jadi atribusinya tetap benar.
+  const throughOurWrapper = {
+    kind: 'error', level: 'error', text: 'Unhandled promise rejection: TypeError: Failed to fetch',
+    stack: '    at window.fetch (chrome-extension://' + OWN + '/src/content/capture-main.js:320:14)\n' +
+           '    at poll (chrome-extension://' + OTHER + '/inject.js:5:9)'
+  };
+  check('frame Rapspect diabaikan, frame asing tetap dikenali',
+        core.foreignExtensionId(throughOurWrapper, OWN) === OTHER);
+
+  // Satu saja frame halaman berarti halaman ikut terlibat.
+  const mixed = {
+    kind: 'console', level: 'error', text: 'boom',
+    stack: '    at wrapped (chrome-extension://' + OTHER + '/hook.js:1:1)\n' +
+           '    at checkout (https://shop.test/app.js:88:12)'
+  };
+  check('campuran frame halaman dan extension TIDAK dilabeli',
+        core.foreignExtensionId(mixed, OWN) === null);
+
+  const pageOnly = {
+    kind: 'console', level: 'error', text: 'boom',
+    stack: '    at checkout (https://shop.test/app.js:88:12)'
+  };
+  check('frame halaman saja tidak dilabeli', core.foreignExtensionId(pageOnly, OWN) === null);
+
+  // URL extension yang hanya DISEBUT di pesan, bukan di baris frame.
+  const mentioned = {
+    kind: 'console', level: 'error',
+    text: 'Denying load of chrome-extension://' + OTHER + '/icon.html. Resources must be listed.'
+  };
+  check('URL extension yang hanya disebut di pesan tidak dilabeli',
+        core.foreignExtensionId(mentioned, OWN) === null);
+
+  check('entri tanpa frame tidak bisa diatribusikan',
+        core.foreignExtensionId({ kind: 'console', level: 'log', text: 'hello' }, OWN) === null);
+
+  const anonymous = {
+    kind: 'error', level: 'error', text: 'x',
+    stack: '    at new Promise (<anonymous>)\n' +
+           '    at run (chrome-extension://' + OTHER + '/a.js:2:3)\n' +
+           '    at Array.forEach (<anonymous>)'
+  };
+  check('frame tanpa lokasi diabaikan', core.foreignExtensionId(anonymous, OWN) === OTHER);
+
+  // Dua extension lain: yang dilaporkan adalah frame paling atas, tempat
+  // error-nya dilempar.
+  const twoOthers = {
+    kind: 'error', level: 'error', text: 'x',
+    stack: '    at top (chrome-extension://' + THIRD + '/t.js:1:1)\n' +
+           '    at below (chrome-extension://' + OTHER + '/b.js:1:1)'
+  };
+  check('dari dua extension lain, frame paling atas yang dipakai',
+        core.foreignExtensionId(twoOthers, OWN) === THIRD);
+
+  // Frame halaman di dalam eval tetap frame halaman.
+  const evalFrame = {
+    kind: 'error', level: 'error', text: 'x',
+    stack: '    at eval (eval at <anonymous> (https://shop.test/app.js:1:1), <anonymous>:1:1)\n' +
+           '    at run (chrome-extension://' + OTHER + '/a.js:2:3)'
+  };
+  check('frame eval milik halaman tetap dihitung frame halaman',
+        core.foreignExtensionId(evalFrame, OWN) === null);
+
+  check('entri null tidak melempar', core.foreignExtensionId(null, OWN) === null);
+
+  // Label ikut di baris datar yang disalin ke tiket.
+  const labelled = Object.assign({ t: 1000, extId: OTHER }, real);
+  check('baris datar menyebut asalnya',
+        core.entryToLine(labelled).indexOf('ERROR (other extension)') !== -1,
+        core.entryToLine(labelled).slice(0, 60));
+
+  check('blok detail menunjuk halaman chrome://extensions untuk id itu',
+        core.entryDetail(labelled).indexOf('chrome://extensions/?id=' + OTHER) !== -1);
+
+  // Ringkasan laporan tidak menghitung error extension lain sebagai error halaman.
+  const pageError = Object.assign(consoleEntry('real page bug'), { id: 1 });
+  const foreignError = Object.assign(consoleEntry('not ours'), { id: 2, extId: OTHER, repeatCount: 3 });
+  const md = core.buildReport('markdown', { total: 2, max: 500 }, [pageError, foreignError]);
+  check('ringkasan hanya menghitung error halaman',
+        /\| Summary \| 1 error, 0 warning, 0 failed request; plus 3 from other browser extensions, not counted \|/.test(md),
+        (md.match(/\| Summary \|.*/) || [''])[0]);
+  check('tabel laporan melabeli barisnya',
+        md.indexOf('`ERROR` _other extension_') !== -1);
+
+  const jira = core.buildReport('jira', { total: 2, max: 500 }, [pageError, foreignError]);
+  check('laporan Jira juga melabeli barisnya', jira.indexOf('ERROR (other extension)') !== -1);
+
+  // Halaman tidak bisa menandai error-nya sendiri sebagai milik extension lain
+  // dengan mengirim extId langsung.
+  const forgedExt = core.sanitizeEntry({ kind: 'console', level: 'error', text: 'mine', extId: OTHER });
+  check('extId palsu dari halaman dibuang', forgedExt.extId === undefined);
+}
+
+// -----------------------------------------------------------------------------
+// 8. Halaman tidak bisa memalsukan hitungan
 // -----------------------------------------------------------------------------
 {
   // Entri dari halaman melewati sanitizeEntry di service worker. Kalau
