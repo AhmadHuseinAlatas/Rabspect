@@ -1,0 +1,27 @@
+# Rapspect - dependency updates
+#
+# There are no application dependencies to update. No package.json, no lockfile,
+# no npm install — that is a deliberate property of this project, not an
+# oversight.
+#
+# What does need watching is the workflow itself. `checks.yml` pins
+# actions/checkout and actions/setup-node to major tags, and a pinned action left
+# alone eventually stops receiving security fixes or starts failing on a runner
+# image that moved on. Dependabot opens a pull request when a new major appears,
+# so the CI quietly rotting becomes a visible decision instead.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    # Monthly rather than weekly on purpose. Two actions change rarely, and a
+    # stream of pull requests nobody reads trains you to ignore the ones that
+    # matter.
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: scope
+    labels:
+      - dependencies

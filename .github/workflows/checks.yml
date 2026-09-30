@@ -49,7 +49,8 @@ jobs:
             tools/serve.js \
             tools/selftest-redaction.js \
             tools/selftest-contrast.js \
-            tools/selftest-structure.js
+            tools/selftest-structure.js \
+            tools/selftest-highlight.js
           do
             node --check "$file"
             echo "ok  $file"
@@ -69,3 +70,9 @@ jobs:
       # that are at risk of looking identical.
       - name: Colour tokens
         run: node tools/selftest-contrast.js
+
+      # The property that matters here is not "the colours are right", it is that
+      # tokenising a log line never loses a character. A miscoloured log is
+      # obvious; a log missing a digit from a line number is trusted and wrong.
+      - name: Log tokenising
+        run: node tools/selftest-highlight.js
