@@ -1,0 +1,29 @@
+# Rapspect
+#
+# Proyek ini tidak punya build step dan tidak punya dependency, jadi tidak ada
+# node_modules atau folder dist yang perlu diabaikan. Yang ada di bawah adalah
+# berkas yang muncul dari PEMAKAIAN alat ini, plus sampah bawaan sistem.
+
+# Hasil "Export JSON" dari panel. Nama filenya dibentuk oleh panel.js sebagai
+# rapspect-<host>-<tanggal>-<waktu>.json. Ini yang paling penting diabaikan:
+# isinya log dari halaman yang diuji, dan walaupun redaction selalu aktif, file
+# itu tetap bukan sesuatu yang layak ikut ter-commit ke repo publik.
+rapspect-*.json
+
+# Log sementara
+*.log
+
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
